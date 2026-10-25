@@ -3,18 +3,32 @@
  * 线上更新 → 顶部弹"发现新版本"提示条，点击刷新即加载最新。
  * 仅线上（http/https）生效；本地 file:// 打开自动跳过。
  *
- * 发新版本时三处同步 +1（见 README「分发与更新」）：
- *   1) index.html 里所有 ?v=N
- *   2) 本文件的 APP_VER
- *   3) version.json 的 {"v": N}
+ * 版本号唯一常量在 index.html 头部（window.APP_VERSION），
+ * 发新版本只改两处：
+ *   1) index.html：头部 APP_VERSION + 全部 ?v= 参数（全局替换一次）
+ *   2) version.json 的 "v"
+ * 番茄钟等子模块自动跟随 window.APP_VERSION，无需单独改。
  * ============================================================ */
 (() => {
-  const APP_VER = 1.0;
+  const APP_VER = window.APP_VERSION;
+  if (!APP_VER) return;
   if (!/^https?:/.test(location.protocol)) return;   // file:// 本地打开不检测
+
+  /* 逐段数值比较："1.10" > "1.9"、"2.0" > "1.9" 均正确 */
+  const cmpVer = (a, b) => {
+    const pa = String(a).split(".");
+    const pb = String(b).split(".");
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0);
+      if (d) return d;
+    }
+    return 0;
+  };
+
   fetch("version.json?ts=" + Date.now())
     .then((r) => r.json())
     .then((j) => {
-      if (!j || !(j.v > APP_VER)) return;            // 已是最新（或服务器版本异常）
+      if (!j || !(cmpVer(j.v, APP_VER) > 0)) return;  // 已是最新（或服务器版本异常）
       const bar = document.createElement("div");
       bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:999;" +
         "display:flex;gap:12px;justify-content:center;align-items:center;" +
