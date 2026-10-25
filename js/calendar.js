@@ -202,8 +202,14 @@ function calRenderDetail() {
       }).join("　")}</span><br>`
     : "";
 
-  /* 当天起始的纪念日 */
-  const tms = Timers.getFor(y, m, d);
+  /* 当天起始的纪念日。自动节日（法定/网络）若已被上面的节日行或节气行
+     列出则不重复显示——两套节日系统并存，按"去节后缀"口径对齐
+     （春节/春节、七夕节/七夕、清明节/节气清明 均可匹配） */
+  const normFest = (s) => String(s).replace(/节$/, "");
+  const shownFest = new Set(fests.map(normFest));
+  if (sl.isTerm) shownFest.add(normFest(sl.term));
+  const tms = Timers.getFor(y, m, d).filter((t) =>
+    !(t.auto && shownFest.has(normFest(t.name))));
   const timerLine = tms.length
     ? `<span class="cal-timer-line">🎂 纪念日：${tms.map((t) => `${t.icon} ${calEsc(t.name)}`).join("　")}</span><br>`
     : "";
