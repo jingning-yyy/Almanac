@@ -1,9 +1,11 @@
 /* ============================================================
  * 磁盘数据同步（可选增强）：配合 server.py 使用
  * 用 server.py 打开页面时，各账号数据自动镜像为磁盘上的真实文件：
- *   data/default/nav_timers.json   ← 默认身份的计时器
- *   data/用户名.json         ← 该账号的全部数据
- * 资源管理器里可直接查看/拷贝整个 data 文件夹给别人，方便迁移。
+ *   data/用户名.json   ← 每个账号一个整包（默认身份 = default.json）
+ *   data/accounts.json / current.json / deleted.json ← 账号表 / 当前身份 / 已删账号墓碑
+ * 资源管理器里可直接查看/拷贝整个 data 文件夹给别人：
+ *   对方浏览器没用过 → 首开整包拉取；已用过 → 自动并入"对方没有的账号"，
+ *   已有的账号以各自本地为准，互不覆盖、也不会被镜像删除误删。
  * 双击 index.html（file://）或部署线上时自动停用，数据仍保存在浏览器。
  * 注意：本文件应在 account.js 之后、app.js 之前加载
  * ============================================================ */
@@ -54,11 +56,16 @@
   function treeFromBrowser() {
     const acc = getJSON(DIR + "accounts", {});
     const cur = readCurrent();
-    const tree = { "accounts": acc, "current": cur };
+    const tombL = new Set(getJSON(DIR + "deleted", []));
+    const tree = { "accounts": acc, "current": cur, "deleted": getJSON(DIR + "deleted", []) };
     const users = new Set(["default", ...Object.keys(acc)]);
     if (cur) users.add(cur);
     for (const u of users) {
-      const b = Object.assign(folderRead(u), u === cur ? stdSnapshot() : {});
+      if (tombL.has(u)) continue;         // 已删账号：不随树推送，防旧档复活
+      /* 未登录（cur 为空）时，标准键的实时数据归属 default 身份，
+         否则 default 整包只停留在账号切换时的旧存档（镜像失真） */
+      const isLive = u === cur || (u === "default" && !cur);
+      const b = Object.assign(folderRead(u), isLive ? stdSnapshot() : {});
       tree[u || "default"] = b;
     }
     return tree;
@@ -67,9 +74,11 @@
   /* 磁盘树 → 浏览器存储（全新浏览器首次打开时拉取） */
   function applyTree(tree) {
     const cur = String(tree["current"] ?? "");
+    const tomb = new Set(Array.isArray(tree["deleted"]) ? tree["deleted"] : []);
     for (const [name, bundle] of Object.entries(tree)) {
-      if (name === "accounts" || name === "current") continue;
-      if (!bundle || typeof bundle !== "object") continue;
+      if (name === "accounts" || name === "current" || name === "deleted") continue;
+      if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) continue;
+      if (tomb.has(name)) continue;               // 已删账号墓碑：不拉回
       for (const [k, v] of Object.entries(bundle)) {
         /* 磁盘上的值本来就是字符串，必须原样写入；JSON.stringify 会造成双重编码 */
         const sv = typeof v === "string" ? v : JSON.stringify(v);
@@ -81,6 +90,41 @@
     }
     localStorage.setItem(DIR + "accounts", JSON.stringify(tree["accounts"] ?? {}));
     localStorage.setItem(DIR + "current", String(tree["current"] ?? ""));
+    localStorage.setItem(DIR + "deleted", JSON.stringify(Array.isArray(tree["deleted"]) ? tree["deleted"] : []));
+  }
+
+  /* 磁盘 → 本地：把"本地没有"的账号数据并入浏览器（拷贝 data/ 迁移、双机共用场景）。
+   * 这是 v73 空浏览器防线的补全：此前旧浏览器首推会把拷入的陌生账号文件
+   * 当"磁盘多余文件"镜像删除——即"拷 data/ 给别人"在对方用过星历时反被销毁。
+   * 规则：已存在的账号以本地为准（防旧磁盘覆盖本地新数据）；
+   *      删除过的账号有墓碑（data/deleted），不复活；默认基线以本地为准。 */
+  function importForeign(tree) {
+    let changed = false;
+    const tomb = new Set([
+      ...getJSON(DIR + "deleted", []),
+      ...(Array.isArray(tree["deleted"]) ? tree["deleted"] : [])
+    ]);
+    const accLocal = getJSON(DIR + "accounts", {});
+    const accDisk = tree["accounts"] && typeof tree["accounts"] === "object" ? tree["accounts"] : {};
+    const cur = readCurrent();
+    for (const [name, bundle] of Object.entries(tree)) {
+      if (["accounts", "current", "deleted"].includes(name)) continue;
+      if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) continue;
+      if (name === "default") continue;
+      if (tomb.has(name)) continue;
+      if (name === cur) continue;
+      if (accLocal[name] || Object.keys(folderRead(name)).length) continue;
+      for (const [k, v] of Object.entries(bundle)) {
+        localStorage.setItem(DIR + name + "/" + k, typeof v === "string" ? v : JSON.stringify(v));
+      }
+      if (accDisk[name]) accLocal[name] = accDisk[name];
+      changed = true;
+    }
+    if (changed) {
+      localStorage.setItem(DIR + "accounts", JSON.stringify(accLocal));
+      window.__SYNC.imported = true;
+    }
+    return changed;
   }
 
   async function push(force = false) {
@@ -108,15 +152,15 @@
     }
     const fp = JSON.stringify(tree);
     if (!force && fp === lastFp) return;
-    lastFp = fp;
     try {
       const r = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tree: tree })
       });
+      /* 指纹只在推送成功后记录：失败（网络抖动）时下个周期自动重试，不留窗口 */
       if (!r.ok) window.__SYNC.errs.push("http " + r.status);
-      else window.__SYNC.pushes++;
+      else { lastFp = fp; window.__SYNC.pushes++; }
     } catch (e) {
       window.__SYNC.errs.push("net: " + e.message);
     }
@@ -147,17 +191,13 @@
         return;
       }
       try { localStorage.setItem(PULLED_FLAG, "1"); } catch { /* 忽略 */ }
-      /* 一次性账号合并（js/merge-once.js）：在首推镜像前执行，合并结果随本次推送落盘 */
-      let mergedNow = false;
-      if (window.__MERGE_ONCE) {
-        try { mergedNow = window.__MERGE_ONCE(tree) === true; }
-        catch (e) { window.__SYNC.errs.push("merge: " + e.message); }
+      /* 旧浏览器 + 新磁盘数据（拷贝 data/ 迁移）：先把本地没有的账号并入，
+       * 再做首推镜像——推送树因此是双方并集，镜像删除不会再删掉拷入的文件 */
+      if (diskHas && !freshBrowser) {
+        try { importForeign(tree); }
+        catch (e) { window.__SYNC.errs.push("import: " + e.message); }
       }
       await push(true);                          // 启动时强制初始镜像（磁盘缺失自动重建）
-      if (mergedNow) {                           // 合并改写了身份/数据：刷新一次以正确渲染
-        location.reload();
-        return;
-      }
       setInterval(push, 5000);                   // 每 5 秒检查变化
       window.addEventListener("beforeunload", () => {
         try {

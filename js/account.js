@@ -31,6 +31,12 @@
     for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
     return h.toString(36);
   };
+  /* 已删账号墓碑：data/deleted 名单随推送镜像到磁盘，防止拷贝 data/ 迁移时
+   * 已删除的账号又被 importForeign 并入回来（同名重建时解除墓碑） */
+  const TOMB = DIR + "deleted";
+  const tombList = () => {
+    try { return JSON.parse(localStorage.getItem(TOMB)) || []; } catch { return []; }
+  };
   const getUser = () => localStorage.getItem(CUR) || "";
   const folderPrefix = (u) => DIR + (u || "default") + "/";
   const folderKeys = (u) => {
@@ -207,6 +213,11 @@
         const acc2 = accounts();
         delete acc2[u];
         localStorage.setItem(ACCOUNTS, JSON.stringify(acc2));
+        const t = tombList();
+        if (!t.includes(u)) {
+          t.push(u);
+          localStorage.setItem(TOMB, JSON.stringify(t));   // 墓碑：迁入磁盘数据时不再复活
+        }
         if (u === getUser()) { clearStd(); localStorage.setItem(CUR, ""); }
         location.reload();
       };
@@ -240,7 +251,15 @@
       else alert("你已经是默认身份");
       return;
     }
-    if (/[:<>\/\\|"?*]/.test(name)) { alert("用户名不能包含 : < > / \\ | ? * 字符"); return; }
+    /* 用户名规则与 server.py 白名单（^\w+$）对齐：仅中英文、数字、下划线。
+       名字带 - 空格 等字符的账号能建号但数据永远写不进磁盘（白名单静默丢弃），
+       换浏览器后即被当新账号清零；保留名会覆盖 data/ 顶层键，一并禁止。 */
+    if (!/^[\p{L}\p{N}_]+$/u.test(name)) {
+      alert("用户名只能包含中文、英文、数字、下划线"); return;
+    }
+    if (["default", "accounts", "current", "deleted"].includes(name)) {
+      alert(`「${name}」是系统保留名，请换一个用户名`); return;
+    }
     const acc = accounts();
     if (acc[name]) {
       if (acc[name] !== hash(pass || "")) { alert("密码不对，请重新输入"); return; }
@@ -248,6 +267,9 @@
       if (!pass) { alert("新账号请设置一个密码"); return; }
       acc[name] = hash(pass);
       localStorage.setItem(ACCOUNTS, JSON.stringify(acc));
+      /* 同名重建：解除该账号的删除墓碑 */
+      const t = tombList().filter((x) => x !== name);
+      if (t.length !== tombList().length) localStorage.setItem(TOMB, JSON.stringify(t));
     }
     if (name === u) { document.getElementById("accountMask").hidden = true; return; }
     switchTo(name);                           // 页面将自动刷新进入该账号

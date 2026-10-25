@@ -72,26 +72,63 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             want = {}
             tree_data = payload.get("tree")
             if tree_data is None:
-                tree_data = payload          # 兼容：直接提交树本身
-            # 空浏览器防线（v73）：无账号、无登录身份、无账号数据文件的推送
-            # 一律忽略——既不写入也不触发镜像删除，防止空状态清掉磁盘上的真实数据
+                tree_data = payload          # 兼容：直接提交树本身（卸载信标）
+            # 空浏览器防线（v73，v74 对齐语义）：无账号、无登录身份、无任何账号数据包
+            # 的推送一律忽略——防止空状态清掉磁盘上的真实数据。default 有实际内容
+            # 视作有效数据（与客户端判定一致）。
+            meta = ("accounts", "current", "deleted")
             acc = tree_data.get("accounts") or {}
             cur = tree_data.get("current") or ""
             user_bundles = [k for k in tree_data
-                            if k not in ("accounts", "current", "default")
+                            if k not in meta
                             and isinstance(tree_data[k], dict) and tree_data[k]]
             if not acc and not cur and not user_bundles:
                 print("[sync] POST ignored (empty browser push)", flush=True)
                 return self._json({"ok": True, "saved": 0, "skipped": "empty"})
+
+            # 墓碑 = 已删账号名单：磁盘已有 ∪ 本次推送。只按墓碑删用户文件、
+            # 账号表按并集合并——v74 之前"磁盘多余即删"会让旧浏览器的卸载信标
+            # 把刚拷入 data/ 的陌生账号文件一并销毁（拷贝迁移反而丢数据的根源）。
+            def _read_disk_json(name):
+                try:
+                    with open(os.path.join(DATA, name + ".json"), encoding="utf-8") as fp:
+                        return json.load(fp)
+                except Exception:
+                    return None
+
+            dead = set()
+            disk_dead = _read_disk_json("deleted")
+            if isinstance(disk_dead, list):
+                dead |= {str(x) for x in disk_dead}
+            if isinstance(tree_data.get("deleted"), list):
+                dead |= {str(x) for x in tree_data["deleted"]}
+
             for name, val in tree_data.items():
+                if name in meta or name in dead:
+                    continue
                 if not SAFE.match(name):
-                    continue                      # 非法名跳过（防目录穿越）
+                    continue                  # 非法名跳过（防目录穿越）
                 want[name] = val
+            # 账号表：磁盘 ∪ 本次推送、剔除墓碑（他机新建的账号不被后推的一方冲掉）
+            disk_acc = _read_disk_json("accounts")
+            merged_acc = dict(disk_acc) if isinstance(disk_acc, dict) else {}
+            if isinstance(acc, dict):
+                merged_acc.update(acc)
+            for name in dead:
+                merged_acc.pop(name, None)
+            want["accounts"] = merged_acc
+            want["deleted"] = sorted(dead)
+            if "current" in tree_data:
+                want["current"] = tree_data.get("current") or ""
+
+            for name, val in want.items():
                 fpath = os.path.join(DATA, name) + ".json"
                 os.makedirs(os.path.dirname(fpath), exist_ok=True)
                 with open(fpath, "w", encoding="utf-8") as fp:
                     json.dump(val, fp, ensure_ascii=False, indent=2)
-            # 镜像删除：磁盘上多余的旧文件一并清理
+            # 删除：只清理墓碑名单里的用户文件（不再"多余即删"，手工放入的
+            # data/*.json 想删就自己删文件或建同名账号后删账号）
+            removed = []
             for dirpath, _, files in os.walk(DATA):
                 rel = os.path.relpath(dirpath, DATA).replace("\\", "/")
                 folder = "" if rel == "." else rel + "/"
@@ -99,12 +136,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     if not f.endswith(".json"):
                         continue
                     key = folder + f[:-5]
-                    if key not in want:
+                    if key in dead and key not in meta:
                         try:
                             os.remove(os.path.join(dirpath, f))
+                            removed.append(key)
                         except OSError:
                             pass
-            print("[sync] POST saved:", sorted(want.keys()), flush=True)
+            print("[sync] POST saved:", sorted(want.keys()), "removed:", removed, flush=True)
             return self._json({"ok": True, "saved": len(want)})
         return self._json({"ok": False}, 404)
 
