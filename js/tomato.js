@@ -9,7 +9,7 @@
  * ============================================================ */
 (() => {
   /* 与 index.html 里 css/js 的 ?v=N 保持一致，用于刷新 iframe 缓存 */
-  const TOMATO_VER = 73;
+  const TOMATO_VER = 1.0;
   const SRC = `tomato/index.html?v=${TOMATO_VER}`;
 
   let loaded = false;   // iframe 是否已加载过内容（about:blank 时为 false）

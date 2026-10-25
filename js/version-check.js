@@ -9,7 +9,7 @@
  *   3) version.json 的 {"v": N}
  * ============================================================ */
 (() => {
-  const APP_VER = 73;
+  const APP_VER = 1.0;
   if (!/^https?:/.test(location.protocol)) return;   // file:// 本地打开不检测
   fetch("version.json?ts=" + Date.now())
     .then((r) => r.json())
