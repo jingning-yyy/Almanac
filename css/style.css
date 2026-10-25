@@ -254,7 +254,6 @@ input, select { font-family: inherit; }
 }
 
 /* ---------- 万年历 ---------- */
-.cal-modal { max-width: 384px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .cal-title { text-align: center; }
 .cal-title b { font-size: 17px; display: block; }
@@ -272,7 +271,7 @@ input, select { font-family: inherit; }
 .cal-grid > span { display: block; }
 .cal-cell {
   border: none; background: transparent; color: var(--text);
-  border-radius: 10px; padding: 5px 2px 4px; min-height: 50px;
+  border-radius: 10px; padding: 4px 1px 3px; min-height: 46px;
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   transition: background .12s;
 }
@@ -292,8 +291,8 @@ input, select { font-family: inherit; }
 .cal-cell.selected .lunar.fest,
 .cal-cell.selected .lunar.term { color: rgba(255, 255, 255, .9); }
 .cal-detail {
-  margin-top: 12px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.95; min-height: 84px;
+  margin-top: 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px 11px; font-size: 12.5px; line-height: 1.8; min-height: 72px;
 }
 .cal-detail b { color: var(--accent); }
 .cal-detail .fest-line { color: #e89a3c; font-weight: 600; }
@@ -998,8 +997,8 @@ body.zen .hero h1 { font-size: 30px; }
 
 /* ======== v69 ======== */
 /* 万年历弹窗更紧凑 */
-.cal-modal { padding: 14px 12px; }
-.cal-cell { padding: 4px 1px; }
+.cal-modal { padding: 12px 10px; }
+.cal-cell { padding: 3px 1px; }
 .cal-detail { margin-top: 8px; font-size: 12.5px; }
 /* 新增预设 9~12 */
 .wp-grad-9 { --wp-c1: #4facfe; --wp-c2: #00f2fe; --wp-c3: #6dd5ed; }
@@ -1027,6 +1026,23 @@ body.zen .hero h1 { font-size: 30px; }
 /* 导出面板：范围行严格一行、类型复选行 */
 .pack-range { flex-wrap: nowrap; white-space: nowrap; }
 .pack-range input[type="date"] { width: 118px; flex: none; }
+
+/* ======== 弹窗尺寸微调 ======== */
+/* 宽度上限必须放在 .modal 通用规则（v64 的 max-width:96vw）之后声明才生效：
+   万年历此前被 96vw 压掉上限，弹窗实为全屏宽——"弹窗还是大"的根源；
+   日记弹窗同病，一并补上限 */
+.cal-modal { max-width: 348px; }
+.diary-modal { max-width: 440px; }
+/* 添加网址：小表单收窄收紧 */
+.add-modal { max-width: 340px; padding: 18px 20px 20px; }
+/* 账号面板：加宽到"名称+当前+四个操作按钮"一行放得下，按钮不缩不小 */
+.account-modal { max-width: 480px; }
+.account-modal .acc-folder-head { flex-wrap: nowrap; }
+.account-modal .acc-folder-head b {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.account-modal .acc-ops { flex: none; }
+.account-modal .acc-ops button { font-size: 11px; padding: 2px 8px; }
 .pack-types { align-items: center; }
 .pack-type {
   display: inline-flex; align-items: center; gap: 4px;
