@@ -714,3 +714,6 @@ const Timers = (() => {
     _test: { render, saveForm, calc, todayEvents }
   };
 })();
+
+/* 挂到 window：跨模块订阅纪念日数据变化（万年历圆点/详情刷新） */
+window.Timers = Timers;

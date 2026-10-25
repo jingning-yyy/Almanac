@@ -230,3 +230,7 @@ const Records = (() => {
   };
   return api;
 })();
+
+/* 挂到 window：顶层 const 不上 window，calendar.js 等模块用
+   window.Records 订阅变更——不挂的话该订阅分支是永不执行的死代码 */
+window.Records = Records;

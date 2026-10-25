@@ -176,14 +176,23 @@ window.Diary = (() => {
     if (v.mood) parts.push(`心情 ${v.mood}`);
     return parts.join(" · ");
   }
+  /* 存储键的日期不补零（2026-1-5），<input type=date> 的值补零（2026-01-05）：
+     比较/排序前统一补零，否则 1–9 月会因字符串比较被错误排除在范围外 */
+  const normKey = (k) => {
+    const [y, m, d] = k.split("-");
+    return `${y}-${(m || "").padStart(2, "0")}-${(d || "").padStart(2, "0")}`;
+  };
   function renderList() {
     const list = pkMask.querySelector("#packList");
     /* 时间范围筛选（v67）：只在范围内列出，便于批量勾选导出 */
     const from = pkMask.querySelector("#pkFrom").value;
     const to = pkMask.querySelector("#pkTo").value;
     const keys = Object.keys(pkDays).filter((k) => pkDays[k] && Object.keys(pkDays[k]).length)
-      .filter((k) => (!from || k >= from) && (!to || k <= to))
-      .sort((a, b) => (a < b ? 1 : -1));
+      .filter((k) => {
+        const nk = normKey(k);
+        return (!from || nk >= from) && (!to || nk <= to);
+      })
+      .sort((a, b) => (normKey(a) < normKey(b) ? 1 : -1));
     if (!keys.length) {
       list.innerHTML = `<div class="pack-empty">${
         pkMode === "local" ? "还没有任何一天有附件/日记/心情" : "文件里没有可导入的数据"}</div>`;

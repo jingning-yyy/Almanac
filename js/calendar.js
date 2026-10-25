@@ -469,6 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  /* 记录变化时刷新日历圆点与详情 */
+  /* 记录/纪念日变化时刷新日历圆点与详情（Records/Timers 已挂 window） */
   if (window.Records) Records.onChange(calRender);
+  if (window.Timers) Timers.onChange(calRender);
 });
