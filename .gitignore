@@ -1,0 +1,5 @@
+data/
+startup_log.txt
+srv_out.txt
+__pycache__/
+.idea/

@@ -1,0 +1,2340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="番茄钟工作法：专注计时 + 待办清单 + 每日打卡统计，数据保存在本地浏览器">
+  <title>番茄钟 · 专注 + 待办</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>">
+  <script src="xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f4f0;
+      --card: #ffffff;
+      --text: #2b2723;
+      --muted: #8a8378;
+      --line: #e8e2d8;
+      --accent: #d94f3d;
+      --accent-soft: #fbe9e5;
+      --ok: #3d9a6c;
+      --ok-soft: #e4f3ec;
+      --shadow: 0 6px 24px rgba(60, 40, 20, .08);
+    }
+    html[data-theme="dark"] {
+      --bg: #1c1a18;
+      --card: #262320;
+      --text: #efe9e1;
+      --muted: #9a9184;
+      --line: #38332d;
+      --accent: #e86850;
+      --accent-soft: #3a2723;
+      --ok: #5cba8a;
+      --ok-soft: #21362b;
+      --shadow: 0 6px 24px rgba(0, 0, 0, .35);
+    }
+    /* 阶段配色：专注红 / 短休绿 / 长休蓝 */
+    html[data-phase="focus"]  { --phase: var(--accent); --phase-soft: var(--accent-soft); }
+    html[data-phase="short"]  { --phase: var(--ok);     --phase-soft: var(--ok-soft); }
+    html[data-phase="long"]   { --phase: #4a7fd4;       --phase-soft: rgba(74, 127, 212, .14); }
+    html[data-theme="dark"][data-phase="long"] { --phase: #6f9be0; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background .3s, color .3s;
+    }
+    button { font-family: inherit; cursor: pointer; }
+    input { font-family: inherit; }
+
+    /* ======== 顶栏 ======== */
+    .header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 22px;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+    .logo b { letter-spacing: 1px; }
+    .header .chips { display: flex; gap: 8px; margin-left: 6px; flex-wrap: wrap; }
+    .chip {
+      font-size: 12.5px; color: var(--muted);
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 999px; padding: 4px 12px;
+    }
+    .chip b { color: var(--text); }
+    .header .spacer { flex: 1; }
+    .btn {
+      border: 1px solid var(--line); background: var(--card); color: var(--text);
+      border-radius: 10px; padding: 8px 14px; font-size: 14px;
+      transition: transform .08s, box-shadow .15s;
+    }
+    .btn:hover { box-shadow: var(--shadow); }
+    .btn:active { transform: scale(.97); }
+    .btn.icon { padding: 8px 10px; font-size: 15px; line-height: 1; }
+
+    /* ======== 主体布局 ======== */
+    .layout {
+      display: grid; grid-template-columns: minmax(280px, 360px) minmax(430px, 1fr);
+      gap: 20px; align-items: stretch;
+      padding: 8px 24px 0;
+      max-width: none; margin: 0;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 18px; box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    /* ======== 计时器 ======== */
+    .modes { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
+    .modes button {
+      border: 1px solid transparent; background: transparent; color: var(--muted);
+      border-radius: 999px; padding: 6px 9px; font-size: 12.5px; white-space: nowrap;
+    }
+    .modes button.active {
+      background: var(--phase-soft); color: var(--phase);
+      border-color: var(--phase); font-weight: bold;
+    }
+
+    .ring-wrap { display: flex; justify-content: center; }
+    .ring-box { position: relative; width: 260px; height: 260px; }
+    .ring-box svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .ring-track { fill: none; stroke: var(--line); }
+    .ring-bar {
+      fill: none; stroke: var(--phase); stroke-linecap: round;
+      transition: stroke-dashoffset .3s linear, stroke .3s;
+    }
+    .ring-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    }
+    .time-text { font-size: 52px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 2px; cursor: pointer; }
+    .time-input {
+      width: 150px; font-size: 38px; font-weight: bold; text-align: center;
+      border: none; border-bottom: 2px solid var(--phase); background: transparent;
+      color: var(--text); outline: none; font-family: inherit;
+    }
+    .sapling { font-size: 22px; height: 26px; line-height: 1.2; cursor: pointer; }
+    .phase-hint { font-size: 13px; color: var(--muted); }
+
+    .controls { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+    .btn.main {
+      background: var(--phase); color: #fff; border: none;
+      font-size: 16px; font-weight: bold; padding: 11px 38px; border-radius: 12px;
+    }
+    .current-task {
+      margin-top: 16px; text-align: center; font-size: 13.5px; color: var(--muted);
+      min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .current-task b { color: var(--text); }
+    .kbd-hint { text-align: center; font-size: 12px; color: var(--muted); opacity: .7; margin-top: 10px; }
+    kbd {
+      border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px;
+      padding: 1px 6px; font-size: 11px; background: var(--bg);
+    }
+
+    /* ======== 待办 ======== */
+    .todo-card h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; }
+    .todo-card h3 .count { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: normal; }
+    .todo-add { display: flex; gap: 8px; margin-bottom: 12px; }
+    .todo-add input {
+      flex: 1; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--bg); color: var(--text);
+      padding: 9px 12px; font-size: 14px; outline: none;
+    }
+    .todo-add input:focus { border-color: var(--phase); }
+    .todo-add button {
+      border: none; background: var(--phase); color: #fff;
+      border-radius: 10px; padding: 0 18px; font-size: 15px;
+    }
+    .q-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .q-picker button {
+      border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+      border-radius: 999px; padding: 4px 10px; font-size: 12.5px;
+    }
+    .q-picker button.active { font-weight: bold; color: var(--qc); border-color: var(--qc); background: var(--qbg); }
+    .q-picker button[data-q="1"], .quad[data-q="1"] { --qc: #d94f3d; --qbg: #fbe9e5; }
+    .q-picker button[data-q="2"], .quad[data-q="2"] { --qc: #2f8a5f; --qbg: #e4f3ec; }
+    .q-picker button[data-q="3"], .quad[data-q="3"] { --qc: #c07a28; --qbg: #faeedd; }
+    .q-picker button[data-q="4"], .quad[data-q="4"] { --qc: #7d7568; --qbg: #edeae3; }
+    html[data-theme="dark"] .q-picker button[data-q="1"], html[data-theme="dark"] .quad[data-q="1"] { --qc: #e86850; --qbg: #3a2723; }
+    html[data-theme="dark"] .q-picker button[data-q="2"], html[data-theme="dark"] .quad[data-q="2"] { --qc: #5cba8a; --qbg: #21362b; }
+    html[data-theme="dark"] .q-picker button[data-q="3"], html[data-theme="dark"] .quad[data-q="3"] { --qc: #e0a055; --qbg: #3a2f21; }
+    html[data-theme="dark"] .q-picker button[data-q="4"], html[data-theme="dark"] .quad[data-q="4"] { --qc: #9a9184; --qbg: #2e2b27; }
+    .matrix-wrap { display: flex; flex-direction: column; }
+    .ax { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+    .ax-top { text-align: center; margin-bottom: 3px; }
+    .ax-bottom { text-align: center; margin-top: 3px; }
+    .ax-mid { display: flex; align-items: stretch; gap: 3px; }
+    .ax-side { display: flex; align-items: center; flex-shrink: 0; }
+    .matrix {
+      position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: 1;
+      border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    }
+    .axis-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--muted); opacity: .55; z-index: 2; }
+    .axis-v::before {
+      content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      border: 5px solid transparent; border-top: 0; border-bottom: 7px solid var(--muted);
+    }
+    .axis-h { position: absolute; top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; background: var(--muted); opacity: .55; z-index: 2; }
+    .axis-h::after {
+      content: ""; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+      border: 5px solid transparent; border-right: 0; border-left: 7px solid var(--muted);
+    }
+    .quad {
+      background: var(--qbg); padding: 8px 8px 10px; min-height: 170px;
+      display: flex; flex-direction: column;
+    }
+    .quad[data-q="2"] { padding: 6px 6px 12px 9px; }
+    .quad[data-q="1"] { padding: 6px 9px 12px 12px; }
+    .quad[data-q="4"] { padding: 12px 6px 8px 9px; }
+    .quad[data-q="3"] { padding: 12px 9px 8px 12px; }
+    .quad-qhead {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 12px; font-weight: bold; color: var(--qc); margin-bottom: 6px;
+    }
+    .quad-qhead .n { margin-left: auto; font-weight: normal; color: var(--muted); }
+    .quad ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .quad .todo-item { padding: 5px; font-size: 12.5px; background: var(--card); gap: 4px; }
+    .quad .todo-item.current { background: var(--phase-soft); border-color: var(--phase); }
+    .quad .todo-item .pomo { font-size: 11px; }
+    .quad-empty { font-size: 11.5px; color: var(--muted); opacity: .7; text-align: center; padding: 10px 0; list-style: none; }
+    .qtag { border: none; background: none; font-size: 12px; padding: 0 1px; flex-shrink: 0; }
+
+    /* ======== 截止日期标签 ======== */
+    .due-btn { border: none; background: none; padding: 0; font-size: 11px; flex-shrink: 0; }
+    .due-btn.none { color: var(--muted); opacity: .45; }
+    .due-btn.none:hover { opacity: 1; }
+    .due-chip {
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-size: 10.5px; font-weight: bold; white-space: nowrap;
+    }
+    .due-chip.l0 { background: var(--line); color: var(--muted); }
+    .due-chip.l1 { background: #fdf3d7; color: #a67c00; }
+    .due-chip.l2 { background: #fdeadd; color: #c05621; }
+    .due-chip.l3 { background: #fde3e0; color: #d23f30; }
+    .due-chip.l4 { background: #d23f30; color: #fff; }
+    html[data-theme="dark"] .due-chip.l1 { background: #3a331b; color: #e6c95c; }
+    html[data-theme="dark"] .due-chip.l2 { background: #3c2b1a; color: #f0a868; }
+    html[data-theme="dark"] .due-chip.l3 { background: #42211d; color: #ff8a7a; }
+    html[data-theme="dark"] .due-chip.l4 { background: #6b1f18; color: #ffb3ab; }
+    .due-input {
+      border: 1px solid var(--line); background: var(--bg); color: var(--text);
+      border-radius: 6px; font-size: 11px; padding: 2px 4px; outline: none; flex-shrink: 0;
+    }
+    .todo-item {
+      display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+      transition: background .15s, border-color .15s;
+    }
+    .todo-item.current { border-color: var(--phase); background: var(--phase-soft); }
+    .todo-item.done { opacity: .5; }
+    .todo-item .pick {
+      border: none; background: none; font-size: 15px; color: var(--muted);
+      padding: 2px 4px; flex-shrink: 0;
+    }
+    .todo-item.current .pick { color: var(--phase); }
+    .todo-item .txt { flex: 1; font-size: 14px; word-break: break-all; cursor: default; }
+    .todo-item.done .txt { text-decoration: line-through; }
+    .todo-item .pomo { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+    .todo-item .del {
+      border: none; background: none; color: var(--muted);
+      font-size: 13px; padding: 2px 4px; opacity: .6; flex-shrink: 0;
+    }
+    .todo-item .del:hover { opacity: 1; color: var(--accent); }
+    .todo-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0; }
+    .todo-foot { margin-top: 10px; text-align: right; }
+    .link-btn {
+      border: none; background: none; color: var(--muted); font-size: 12.5px;
+      text-decoration: underline; padding: 2px;
+    }
+    .link-btn:hover { color: var(--accent); }
+
+    /* ======== 最近 7 天 ======== */
+    .bottom-grid {
+      display: grid; grid-template-columns: minmax(280px, 5fr) 7fr; gap: 20px;
+      max-width: none; margin: 20px 0 0; padding: 0 24px;
+    }
+    /* ======== 我的森林 ======== */
+    .forest-card { transition: box-shadow .4s; }
+    .forest-card.flash { animation: forest-flash 2.4s ease; }
+    @keyframes forest-flash {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(217, 79, 61, 0); }
+      18%, 62% { box-shadow: 0 0 0 4px rgba(217, 79, 61, .55); }
+    }
+    .forest-card h3 { font-size: 15px; margin-bottom: 12px; }
+    .forest-card h3 span { font-size: 12.5px; color: var(--muted); font-weight: normal; margin-left: 8px; }
+    /* 森林时间范围筛选 */
+    .forest-filter {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin: -4px 0 10px;
+    }
+    .ff-btn {
+      border: 1.5px solid var(--border); background: var(--card); color: var(--muted);
+      border-radius: 999px; padding: 3.5px 11px; font-size: 12px; line-height: 1.3;
+      cursor: pointer; transition: .15s;
+    }
+    .ff-btn:hover { border-color: var(--phase); color: var(--text); }
+    .ff-btn.active { border-color: var(--phase); background: var(--phase-soft); color: var(--text); font-weight: 600; }
+    .forest-filter input[type="date"] {
+      border: 1.5px solid var(--border); border-radius: 8px; background: var(--card);
+      color: var(--text); font-size: 12px; padding: 2.5px 6px; font-family: inherit;
+    }
+    .forest-filter input[type="date"]:focus { outline: none; border-color: var(--phase); }
+    .ff-dash { font-size: 11.5px; color: var(--muted); }
+    .forest { min-height: 110px; }
+    .forest-screen {
+      position: relative; height: 400px; border-radius: 12px; overflow: hidden;
+      background: linear-gradient(180deg, #c3d8e6 0%, #dfe5d6 55%, #e9e2cc 100%);
+      border: 1px solid #cfe6c4;
+    }
+    html[data-theme="dark"] .forest-screen {
+      background: linear-gradient(180deg, #121b29 0%, #17231d 58%, #1c2a20 100%);
+      border-color: #2e4033;
+    }
+    .fs-sun {
+      position: absolute; top: 12px; right: 28px; width: 96px; height: 96px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 244, 214, .95) 0%, rgba(255, 238, 195, .4) 34%, rgba(255, 238, 195, 0) 68%);
+    }
+    html[data-theme="dark"] .fs-sun { display: none; }
+    .fs-moon {
+      display: none; position: absolute; top: 20px; right: 38px; width: 24px; height: 24px; border-radius: 50%;
+      background: #d9dee3; box-shadow: inset -5px 3px 0 0 #9aa5ae, 0 0 14px 4px rgba(217, 222, 227, .25);
+    }
+    html[data-theme="dark"] .fs-moon { display: block; }
+    .fs-stars {
+      display: none; position: absolute; inset: 0 0 50%;
+      background-image:
+        radial-gradient(1.4px 1.4px at 12% 30%, rgba(255,255,255,.9) 50%, transparent 51%),
+        radial-gradient(1px 1px at 30% 15%, rgba(255,255,255,.7) 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 55% 24%, rgba(255,255,255,.85) 50%, transparent 51%),
+        radial-gradient(1px 1px at 74% 12%, rgba(255,255,255,.6) 50%, transparent 51%),
+        radial-gradient(1.2px 1.2px at 88% 30%, rgba(255,255,255,.8) 50%, transparent 51%);
+    }
+    html[data-theme="dark"] .fs-stars { display: block; }
+    .fs-cloud { position: absolute; height: 12px; border-radius: 999px; background: rgba(255, 255, 255, .75); filter: blur(3px); }
+    .fs-cloud::before {
+      content: ""; position: absolute; top: -6px; left: 12px; width: 20px; height: 20px;
+      border-radius: 50%; background: inherit;
+    }
+    .fs-cloud::after {
+      content: ""; position: absolute; top: -4px; right: 14px; width: 15px; height: 15px;
+      border-radius: 50%; background: inherit;
+    }
+    .fs-cloud.c1 { top: 30px; left: 10%; width: 62px; }
+    .fs-cloud.c2 { top: 60px; right: 18%; width: 46px; opacity: .7; }
+    html[data-theme="dark"] .fs-cloud { background: rgba(255, 255, 255, .06); }
+    .fs-hills { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 52%; }
+    .hill-back { fill: #b7c9ac; }
+    .hill-mid { fill: #94b287; }
+    .hill-front { fill: #7fa374; }
+    html[data-theme="dark"] .hill-back { fill: #26382c; }
+    html[data-theme="dark"] .hill-mid { fill: #20302a; }
+    html[data-theme="dark"] .hill-front { fill: #1a2a20; }
+    .hill-mist { fill: #f2f7ee; opacity: .3; filter: blur(2px); }
+    html[data-theme="dark"] .hill-mist { fill: #a8c4de; opacity: .08; }
+    .fs-tree { position: absolute; transform-origin: bottom center; line-height: 0; }
+    .fs-tree.new { animation: fadein .6s; }
+    @keyframes fadein { from { opacity: 0; } }
+    .f-more { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: var(--muted); z-index: 5; }
+    .forest-screen .forest-empty {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      padding: 0; color: var(--muted); font-size: 13px;
+    }
+    @keyframes pop { 0% { transform: scale(0); } 70% { transform: scale(1.5); } 100% { transform: scale(1); } }
+    .forest-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0; }
+    .forest-legend { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.9; opacity: .85; }
+    .week-card h3 { font-size: 15px; margin-bottom: 14px; }
+    .week-card h3 span { font-size: 12.5px; color: var(--muted); font-weight: normal; margin-left: 8px; }
+    .week-bars { display: flex; align-items: flex-end; gap: 10px; height: 110px; }
+    .week-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+    .week-bar {
+      width: 100%; max-width: 44px; border-radius: 8px 8px 3px 3px;
+      background: var(--phase-soft); position: relative; min-height: 3px;
+      transition: height .4s;
+    }
+    .week-bar.today { background: var(--phase); }
+    .week-bar .num {
+      position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+      font-size: 11.5px; color: var(--muted);
+    }
+    .week-lbl { font-size: 11.5px; color: var(--muted); }
+
+    footer { text-align: center; color: var(--muted); font-size: 12.5px; padding: 22px 0 28px; }
+
+    /* ======== 设置弹窗 ======== */
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, .45);
+      display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px;
+    }
+    .modal-mask[hidden] { display: none; }
+    .modal {
+      background: var(--card); color: var(--text);
+      border-radius: 16px; padding: 22px 24px; width: 100%; max-width: 380px;
+      box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { font-size: 16px; margin-bottom: 16px; }
+    .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
+    .set-row label { font-size: 14px; }
+    .set-row .sub { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .set-row input[type="number"] {
+      width: 72px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text);
+      padding: 6px 8px; font-size: 14px; text-align: center; outline: none;
+    }
+    .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch i {
+      position: absolute; inset: 0; background: var(--line); border-radius: 999px;
+      transition: background .2s; cursor: pointer;
+    }
+    .switch i::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%; background: #fff;
+      transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+    .switch input:checked + i { background: var(--phase); }
+    .switch input:checked + i::after { left: 23px; }
+    .modal .divider { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .modal-actions .left { margin-right: auto; display: flex; gap: 8px; }
+    .danger { color: var(--accent) !important; }
+
+    /* ======== 生理周期 ======== */
+    .p-pred { background: var(--bg); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+    .p-pred .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 3px 0; }
+    .p-pred .row .lbl { color: var(--muted); flex-shrink: 0; }
+    .p-badge {
+      display: inline-block; background: var(--accent-soft); color: var(--accent);
+      border-radius: 999px; padding: 3px 12px; font-size: 12.5px; font-weight: bold; margin-bottom: 10px;
+    }
+    .p-sect { font-size: 12.5px; color: var(--muted); margin: 4px 0 6px; }
+    .p-records { max-height: 150px; overflow-y: auto; }
+    .p-rec { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13.5px; border-bottom: 1px dashed var(--line); }
+    .p-rec .len { margin-left: auto; font-size: 12px; color: var(--muted); }
+    .p-rec .del { border: none; background: none; color: var(--muted); font-size: 12px; padding: 2px 4px; opacity: .6; }
+    .p-rec .del:hover { opacity: 1; color: var(--accent); }
+    .p-add { display: flex; gap: 8px; margin: 12px 0; }
+    .p-add input[type="date"] {
+      flex: 1; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--bg); color: var(--text); padding: 8px 10px; font-size: 13.5px; outline: none;
+    }
+    select {
+      border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text); padding: 6px 8px; font-size: 13px; outline: none;
+    }
+    .p-disclaim { font-size: 11.5px; color: var(--muted); line-height: 1.8; margin-top: 10px; }
+    .p-empty-tip { font-size: 13px; color: var(--muted); text-align: center; padding: 18px 0 8px; }
+
+    /* ======== 树种选择 ======== */
+    .tree-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; max-height: 56vh; overflow-y: auto; }
+    .tree-opt {
+      border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+      border-radius: 10px; padding: 6px 2px 4px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      font-size: 11px;
+    }
+    .tree-opt:hover { border-color: var(--phase); }
+    .tree-opt.active { border-color: var(--phase); background: var(--phase-soft); color: var(--text); font-weight: bold; }
+    .tree-opt .tree-dice { height: 46px; display: flex; align-items: center; font-size: 26px; }
+
+    /* ======== 视图切换 ======== */
+    .views { display: flex; gap: 8px; justify-content: center; padding: 4px 20px 0; }
+    .views button {
+      border: 1px solid var(--line); background: var(--card); color: var(--muted);
+      border-radius: 999px; padding: 7px 20px; font-size: 13.5px;
+    }
+    .views button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: bold; }
+
+    /* ======== 待办集 ======== */
+    .sets-page { max-width: 640px; margin: 14px auto 0; padding: 0 20px 10px; display: flex; flex-direction: column; gap: 18px; }
+    .set-group { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+    .set-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-left: 5px solid var(--gc, var(--accent)); }
+    .set-head .gname { font-size: 15px; font-weight: bold; }
+    .set-head .gstat { font-size: 12px; color: var(--muted); }
+    .set-head .spacer { flex: 1; }
+    .set-head button { border: none; background: none; color: var(--muted); font-size: 15px; padding: 2px 6px; }
+    .set-head button:hover { color: var(--text); }
+    .set-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .habit-card {
+      display: flex; align-items: center; gap: 10px;
+      background: color-mix(in srgb, var(--gc, var(--accent)) 12%, var(--card));
+      border: 1px solid var(--line); border-left: 4px solid var(--gc, var(--accent));
+      border-radius: 12px; padding: 10px 12px;
+    }
+    .h-main { flex: 1; min-width: 0; }
+    .h-name { font-size: 14.5px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .h-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .h-ring {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      background: conic-gradient(var(--gc, var(--accent)) calc(var(--p, 0) * 1%), var(--line) 0);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .h-ring i {
+      width: 26px; height: 26px; border-radius: 50%; background: var(--card);
+      display: flex; align-items: center; justify-content: center;
+      font-style: normal; font-size: 8.5px; color: var(--muted);
+    }
+    .h-btn {
+      border: none; background: var(--gc, var(--accent)); color: #fff;
+      border-radius: 10px; padding: 8px 14px; font-size: 14px; font-weight: bold; flex-shrink: 0;
+    }
+    .h-btn:disabled { opacity: .5; }
+    .h-mini {
+      border: 1px solid var(--line); background: var(--card); color: var(--muted);
+      border-radius: 8px; padding: 6px 9px; font-size: 12px; flex-shrink: 0;
+    }
+    .h-del { border: none; background: none; color: var(--muted); opacity: .55; font-size: 13px; flex-shrink: 0; padding: 4px 2px; }
+    .h-del:hover { opacity: 1; color: var(--accent); }
+    .h-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .h-form input {
+      flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--bg); color: var(--text); padding: 8px 10px; font-size: 13px; outline: none;
+    }
+    .h-form input[type="number"] { flex: 0 0 64px; text-align: center; }
+    .h-form select { flex-shrink: 0; font-size: 12.5px; }
+    .h-unit { font-size: 11px; color: var(--muted); flex-shrink: 0; align-self: center; }
+    .sets-add { display: flex; gap: 8px; justify-content: center; align-items: center; }
+    .sets-add button { border: 1px dashed var(--line); background: none; color: var(--muted); border-radius: 12px; padding: 10px 22px; font-size: 13.5px; }
+    .sets-add button:hover { color: var(--accent); border-color: var(--accent); }
+    .sets-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 40px 0; }
+
+    /* ======== 圆盘取色器 ======== */
+    .color-pop {
+      position: fixed; z-index: 60; background: var(--card); color: var(--text);
+      border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+      padding: 12px; width: 176px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .color-pop[hidden] { display: none; }
+    .cp-wrap { position: relative; align-self: center; }
+    #wheelCv { width: 150px; height: 150px; border-radius: 50%; cursor: crosshair; display: block; }
+    .cp-marker {
+      position: absolute; width: 12px; height: 12px; border: 2.5px solid #fff;
+      border-radius: 50%; box-shadow: 0 0 4px rgba(0, 0, 0, .5);
+      pointer-events: none; transform: translate(-50%, 50%);
+    }
+    .color-pop input[type="range"] { width: 100%; accent-color: var(--phase); }
+    .cp-row { display: flex; align-items: center; gap: 8px; }
+    .cp-preview {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      border: 1px solid var(--line); display: inline-block;
+    }
+    .cp-hex { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+    .cp-presets { display: flex; gap: 6px; justify-content: center; }
+    .cp-presets i {
+      width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+      border: 1px solid rgba(0, 0, 0, .12);
+    }
+    .cp-presets i:hover { transform: scale(1.15); }
+    .cp-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .cp-btn { border: 1px solid var(--line); }
+
+    /* ======== 响应式 ======== */
+    @media (max-width: 820px) {
+      .layout { grid-template-columns: 1fr; }
+      .bottom-grid { grid-template-columns: 1fr; }
+      .header { flex-wrap: wrap; }
+      .time-text { font-size: 44px; }
+    }
+
+    /* 完成时标题闪烁提醒 */
+    body.flash .time-text { animation: blink .5s step-end infinite alternate; }
+    @keyframes blink { 50% { opacity: .25; } }
+  </style>
+</head>
+<body>
+
+  <!-- ======== 顶栏 ======== -->
+  <header class="header">
+    <div class="logo"><span>🍅</span><b>番茄钟</b></div>
+    <div class="chips">
+      <span class="chip">今日 <b id="chipToday">0</b> 🍅</span>
+      <span class="chip">专注 <b id="chipMinutes">0</b> 分钟</span>
+      <span class="chip">连续打卡 <b id="chipStreak">0</b> 天</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn icon" id="periodBtn" title="生理周期">🌸</button>
+    <button class="btn icon" id="settingsBtn" title="设置">⚙️</button>
+    <button class="btn icon" id="themeBtn" title="切换亮色 / 暗色主题">🌙</button>
+  </header>
+
+  <!-- ======== 视图切换 ======== -->
+  <nav class="views" id="views">
+    <button data-view="timer" class="active" type="button">🍅 番茄钟</button>
+    <button data-view="sets" type="button">📌 待办集</button>
+  </nav>
+
+  <!-- ======== 番茄钟视图 ======== -->
+  <div id="viewTimer">
+  <div class="layout">
+
+    <!-- 计时器 -->
+    <section class="card">
+      <div class="modes" id="modes">
+        <button data-phase="focus" class="active" type="button">🍅 专注</button>
+        <button data-phase="short" type="button">☕ 短休息</button>
+        <button data-phase="long" type="button">🛋️ 长休息</button>
+        <button data-phase="up" type="button">⏱️ 正计时</button>
+      </div>
+
+      <div class="ring-wrap">
+        <div class="ring-box">
+          <svg viewBox="0 0 260 260">
+            <circle class="ring-track" cx="130" cy="130" r="118" stroke-width="14"></circle>
+            <circle class="ring-bar" id="ringBar" cx="130" cy="130" r="118" stroke-width="14"></circle>
+          </svg>
+            <div class="ring-center">
+              <div class="time-text" id="timeText">25:00</div>
+              <input class="time-input" id="timeInput" type="number" min="1" max="180" hidden>
+              <div class="sapling" id="sapling">🌱</div>
+              <div class="phase-hint" id="phaseHint">准备专注</div>
+            </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn main" id="startBtn">开 始</button>
+        <button class="btn" id="resetBtn" title="重置当前阶段">↺</button>
+        <button class="btn" id="skipBtn" title="跳过当前阶段">⏭</button>
+      </div>
+
+      <div class="current-task" id="currentTask">未选择当前任务，去右侧点 🎯 挑一个</div>
+      <div class="kbd-hint"><kbd>空格</kbd> 开始/暂停 · <kbd>R</kbd> 重置 · <kbd>S</kbd> 跳过</div>
+    </section>
+
+    <!-- 待办清单 -->
+    <section class="card todo-card">
+      <h3>📝 四象限待办 <span class="count" id="todoCount"></span></h3>
+      <div class="todo-add">
+        <input id="todoInput" type="text" maxlength="80" placeholder="添加一个任务，回车确认" autocomplete="off">
+        <button id="todoAddBtn" title="添加">＋</button>
+      </div>
+      <div class="q-picker" id="qPicker" title="选择新任务放入的象限（横轴：紧急程度，纵轴：重要程度）">
+        <button data-q="1" type="button">🌳 重要且紧急</button>
+        <button data-q="2" type="button" class="active">🌲 重要不紧急</button>
+        <button data-q="3" type="button">🌵 紧急不重要</button>
+        <button data-q="4" type="button">🍄 不重要不紧急</button>
+      </div>
+      <div class="matrix-wrap">
+        <div class="ax ax-top">↑ 重要</div>
+        <div class="ax-mid">
+          <span class="ax ax-side">不紧急</span>
+          <div class="matrix" id="matrix">
+            <div class="axis-v"></div>
+            <div class="axis-h"></div>
+          </div>
+          <span class="ax ax-side">紧急</span>
+        </div>
+        <div class="ax ax-bottom">↓ 不重要</div>
+      </div>
+      <div class="todo-foot"><button class="link-btn" id="clearDoneBtn">清空已完成</button></div>
+    </section>
+  </div>
+
+  <!-- ======== 统计与森林 ======== -->
+  <div class="bottom-grid">
+    <section class="card week-card">
+      <h3>📊 最近 7 天<span id="weekSummary"></span></h3>
+      <div class="week-bars" id="weekBars"></div>
+    </section>
+
+    <section class="card forest-card">
+      <h3>🌳 我的森林<span id="forestSummary"></span></h3>
+      <div class="forest-filter" id="forestFilter">
+        <button type="button" class="ff-btn active" data-r="all">全部</button>
+        <button type="button" class="ff-btn" data-r="today">今天</button>
+        <button type="button" class="ff-btn" data-r="d7">近7天</button>
+        <button type="button" class="ff-btn" data-r="d30">近30天</button>
+        <span class="ff-dash">从</span><input type="date" id="ffFrom" title="开始日期（含）">
+        <span class="ff-dash">到</span><input type="date" id="ffTo" title="结束日期（含）">
+        <button type="button" class="ff-btn" data-r="apply">筛选</button>
+        <button type="button" class="ff-btn" data-r="clear" hidden>× 清除范围</button>
+      </div>
+      <div class="forest" id="forestBox"></div>
+      <div class="forest-legend">🌳 重要且紧急：橡树 / 枫树 / 苹果树 · 🌲 重要不紧急：松树 / 樱花 / 银杏 · 🌵 紧急不重要：仙人掌 / 灌木 / 竹子 · 🍄 不重要不紧急：蘑菇 / 多肉 / 花丛 · 🎄 没选任务的野生树（果树 / 白桦 / 柳树） · 🥀 中途放弃会枯萎</div>
+    </section>
+  </div>
+  </div><!-- /viewTimer -->
+
+  <!-- ======== 待办集视图 ======== -->
+  <div id="viewSets" hidden>
+    <div class="sets-page" id="setsPage"></div>
+  </div>
+
+  <footer>番茄钟工作法 · 数据保存在本地浏览器 · 双击 index.html 即可使用</footer>
+
+  <!-- ======== 设置弹窗 ======== -->
+  <div class="modal-mask" id="settingsMask" hidden>
+    <div class="modal">
+      <h3>⚙️ 设置</h3>
+      <div class="set-row">
+        <label>专注时长（分钟）</label>
+        <input type="number" id="setFocus" min="1" max="180">
+      </div>
+      <div class="set-row">
+        <label>短休息（分钟）</label>
+        <input type="number" id="setShort" min="1" max="60">
+      </div>
+      <div class="set-row">
+        <label>长休息（分钟）</label>
+        <input type="number" id="setLong" min="1" max="120">
+      </div>
+      <div class="set-row">
+        <label>每几轮进入长休息</label>
+        <input type="number" id="setLongEvery" min="2" max="10">
+      </div>
+      <div class="set-row">
+        <label>截止·红色标签（小时内）</label>
+        <input type="number" id="setDueH" min="1" max="72">
+      </div>
+      <div class="set-row">
+        <label>截止·橙色标签（天内）</label>
+        <input type="number" id="setDue3" min="1" max="30">
+      </div>
+      <div class="set-row">
+        <label>截止·黄色标签（天内）</label>
+        <input type="number" id="setDue7" min="1" max="30">
+      </div>
+      <hr class="divider">
+      <div class="set-row">
+        <label>自动开始下一阶段<span class="sub">专注结束自动进入休息，休息结束自动开始下一轮</span></label>
+        <span class="switch"><input type="checkbox" id="setAuto"><i></i></span>
+      </div>
+      <div class="set-row">
+        <label>提示音</label>
+        <span class="switch"><input type="checkbox" id="setSound" checked><i></i></span>
+      </div>
+      <div class="set-row">
+        <label>桌面通知<span class="sub">需要浏览器授权，页面在后台也能收到</span></label>
+        <span class="switch"><input type="checkbox" id="setNotify"><i></i></span>
+      </div>
+      <hr class="divider">
+      <div class="set-row">
+        <label>数据备份<span class="sub">导出 / 导入 待办与统计（JSON）</span></label>
+        <span>
+          <button class="btn icon" id="exportBtn" title="导出备份">⬇️</button>
+          <button class="btn icon" id="importBtn" title="导入备份">⬆️</button>
+        </span>
+      </div>
+      <div class="modal-actions">
+        <span class="left"><button class="btn danger" id="wipeBtn">清空所有数据</button></span>
+        <button class="btn" id="settingsClose">完成</button>
+      </div>
+    </div>
+  </div>
+  <!-- ======== 生理周期弹窗 ======== -->
+  <div class="modal-mask" id="periodMask" hidden>
+    <div class="modal">
+      <h3>🌸 生理周期</h3>
+      <div id="periodBody"></div>
+      <div class="p-add">
+        <input type="date" id="pDate">
+        <button class="btn" id="pAddBtn">＋ 记录月经第一天</button>
+      </div>
+      <hr class="divider">
+      <div class="set-row">
+        <label>经期天数</label>
+        <input type="number" id="pLen" min="1" max="14">
+      </div>
+      <div class="set-row">
+        <label>周期天数<span class="sub">自动 = 取最近记录的平均间隔</span></label>
+        <span>
+          <select id="pMode"><option value="auto">自动</option><option value="manual">手动</option></select>
+          <input type="number" id="pManual" min="20" max="45" style="width:62px;">
+        </span>
+      </div>
+      <div class="p-disclaim">以上为日历法估算，仅供日常参考，不构成医学建议，也不能用于避孕；周期受压力、作息、运动等影响会有波动，连续异常请咨询医生。数据只保存在本地浏览器，导出备份时会一并包含。</div>
+      <div class="modal-actions"><button class="btn" id="periodClose">完成</button></div>
+    </div>
+  </div>
+  <!-- ======== 圆盘取色器 ======== -->
+  <div class="color-pop" id="colorPop" hidden>
+    <div class="cp-wrap">
+      <canvas id="wheelCv" width="150" height="150"></canvas>
+      <div class="cp-marker" id="cpMarker" hidden></div>
+    </div>
+    <input type="range" id="lightRange" min="15" max="92" value="55" title="明度">
+    <div class="cp-row">
+      <span class="cp-preview" id="cpPrev"></span>
+      <span class="cp-hex" id="cpHex">#000000</span>
+    </div>
+    <div class="cp-presets" id="cpPresets"></div>
+    <div class="cp-actions">
+      <button class="btn" id="cpCancel" type="button">取消</button>
+      <button class="btn" id="cpOk" type="button">应用</button>
+    </div>
+  </div>
+
+  <!-- ======== 树种选择弹窗 ======== -->
+  <div class="modal-mask" id="treeMask" hidden>
+    <div class="modal">
+      <h3>🌳 选择树种</h3>
+      <div class="tree-grid" id="treeGrid"></div>
+      <div class="p-disclaim">选「随机」就按当前任务的象限自动挑一种；选定品种后，之后种的树都用它</div>
+      <div class="modal-actions"><button class="btn" id="treeClose">完成</button></div>
+    </div>
+  </div>
+  <input type="file" id="importFile" accept=".json" hidden>
+
+  <script>
+  "use strict";
+
+  /* ================================================================
+     番茄钟 · 专注计时 + 待办 + 打卡统计
+     - 计时基于时间戳（endTime），标签页被浏览器降频也不会走慢
+     - 数据统一存 localStorage，跨阶段/跨天自动滚动
+  ================================================================ */
+
+  const LS_KEY = "pomodoro.v1";
+  const PHASE_NAMES = { focus: "专注", short: "短休息", long: "长休息" };
+  const PHASE_HINT  = { focus: "准备专注", short: "喝口水，站起来走走", long: "好好休息一下" };
+  // 四象限（横轴：紧急程度，纵轴：重要程度），象限决定种出的树种
+  const QUADS = {
+    1: { icon: "🌳", name: "重要且紧急" },
+    2: { icon: "🌲", name: "重要不紧急" },
+    3: { icon: "🌵", name: "紧急不重要" },
+    4: { icon: "🍄", name: "不重要不紧急" },
+    0: { icon: "🎄", name: "野生树" },
+    "-1": { icon: "🥀", name: "枯萎" },
+  };
+  const TREE_NAMES = {
+    "1:0": "橡树", "1:1": "枫树", "1:2": "苹果树", "1:3": "椰子树", "1:4": "芒果树",
+    "2:0": "松树", "2:1": "樱花", "2:2": "银杏", "2:3": "雪松", "2:4": "玉兰",
+    "3:0": "仙人掌", "3:1": "灌木", "3:2": "竹子", "3:3": "仙人球", "3:4": "芦荟",
+    "4:0": "蘑菇", "4:1": "多肉", "4:2": "花丛", "4:3": "四叶草", "4:4": "蕨类",
+    "0:0": "果树", "0:1": "白桦", "0:2": "柳树", "0:3": "老榕树", "0:4": "桃树",
+    "-1:0": "枯木",
+  };
+  let newTaskQ = 2; // 新任务默认放入「重要不紧急」
+
+  /* ---------- 数据读写 ---------- */
+  const defaultData = () => ({
+    settings: {
+      focus: 25, short: 5, long: 15, longEvery: 4,
+      dueHours: 8, dueDays3: 3, dueDays7: 7,
+      treePick: null,        // 手动选定的树种 { q, sp }；null = 按任务象限随机
+      autoNext: false, sound: true, notify: false, theme: "light",
+    },
+    todos: [],            // { id, text, done, count, q: 1重要且紧急 2重要不紧急 3紧急不重要 4不重要不紧急 }
+    forest: [],           // 种树记录 { d: "YYYY-MM-DD", q: 象限(0=野生 -1=枯萎), t: 任务名, ts: 时间戳 }
+    selectedTaskId: null,
+    stats: { byDate: {} }, // { "2026-09-09": { pomodoros, minutes } }
+    cycle: 0,              // 本轮已完成专注数（进入长休息后清零）
+    period: { starts: [], periodLen: 5, cycleMode: "auto", cycleManual: 28 }, // 生理周期：月经第一天记录
+    groups: [],            // 待办集 { id, name, color, collapsed }
+    habits: [],            // 习惯 { id, gid, name, target, log: { "YYYY-MM-DD": 次数 } }
+  });
+
+  let data = loadData();
+
+  function loadData() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) {
+        const fresh = defaultData();
+        fresh.groups = [{ id: "g" + Date.now(), name: "生活习惯", color: "#4a7fd4" }];
+        return fresh;
+      }
+      const saved = JSON.parse(raw);
+      const base = defaultData();
+      // 浅合并 settings，避免旧版本缺字段；旧数据补象限字段
+      const merged = {
+        ...base, ...saved,
+        settings: { ...base.settings, ...(saved.settings || {}) },
+        stats: saved.stats || base.stats,
+      };
+      merged.forest = Array.isArray(merged.forest) ? merged.forest : [];
+      merged.period = { ...base.period, ...(saved.period || {}) };
+      if (!Array.isArray(merged.period.starts)) merged.period.starts = [];
+      // 待办集：首次使用自动建一个默认分组
+      if (!Array.isArray(merged.groups) || !merged.groups.length)
+        merged.groups = [{ id: "g" + Date.now(), name: "生活习惯", color: "#4a7fd4" }];
+      if (!Array.isArray(merged.habits)) merged.habits = [];
+      merged.habits.forEach(h => { if (h.mode !== "time") h.mode = "count"; });
+      (merged.todos || []).forEach(t => { if (![1, 2, 3, 4].includes(t.q)) t.q = 2; });
+      return merged;
+    } catch { return defaultData(); }
+  }
+  const save = () => localStorage.setItem(LS_KEY, JSON.stringify(data));
+
+  const dateKey = (d = new Date()) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  function todayStat() {
+    const k = dateKey();
+    if (!data.stats.byDate[k]) data.stats.byDate[k] = { pomodoros: 0, minutes: 0 };
+    return data.stats.byDate[k];
+  }
+
+  /* ---------- 计时状态 ---------- */
+  let phase = "focus";       // focus | short | long | up
+  let running = false;
+  let endAt = 0;             // 倒计时：结束时间戳
+  let startAt = 0;           // 正计时：开始时间戳
+  let remainMs = 0;          // 暂停时残留
+  let tickTimer = null;
+  let flashTimer = null;
+
+  const phaseMinutes = p => p === "up" ? 0 : data.settings[{ focus: "focus", short: "short", long: "long" }[p]];
+  const phaseMs = p => phaseMinutes(p) * 60000;
+
+  /* ---------- DOM ---------- */
+  const $ = id => document.getElementById(id);
+  const els = {
+    ringBar: $("ringBar"), timeText: $("timeText"), timeInput: $("timeInput"), phaseHint: $("phaseHint"),
+    startBtn: $("startBtn"), resetBtn: $("resetBtn"), skipBtn: $("skipBtn"),
+    modes: $("modes"), currentTask: $("currentTask"),
+    todoInput: $("todoInput"), todoAddBtn: $("todoAddBtn"), matrix: $("matrix"),
+    qPicker: $("qPicker"),
+    todoCount: $("todoCount"), clearDoneBtn: $("clearDoneBtn"),
+    sapling: $("sapling"), forestBox: $("forestBox"), forestSummary: $("forestSummary"),
+    forestFilter: $("forestFilter"), ffFrom: $("ffFrom"), ffTo: $("ffTo"),
+    chipToday: $("chipToday"), chipMinutes: $("chipMinutes"), chipStreak: $("chipStreak"),
+    weekBars: $("weekBars"), weekSummary: $("weekSummary"),
+    themeBtn: $("themeBtn"), settingsBtn: $("settingsBtn"), settingsMask: $("settingsMask"),
+    settingsClose: $("settingsClose"),
+    periodBtn: $("periodBtn"), periodMask: $("periodMask"), periodBody: $("periodBody"),
+    periodClose: $("periodClose"), pDate: $("pDate"), pAddBtn: $("pAddBtn"),
+    pLen: $("pLen"), pMode: $("pMode"), pManual: $("pManual"),
+    views: $("views"), setsPage: $("setsPage"),
+    treeMask: $("treeMask"), treeGrid: $("treeGrid"), treeClose: $("treeClose"),
+    colorPop: $("colorPop"), wheelCv: $("wheelCv"), cpMarker: $("cpMarker"),
+    lightRange: $("lightRange"), cpPrev: $("cpPrev"), cpHex: $("cpHex"),
+    cpPresets: $("cpPresets"), cpOk: $("cpOk"), cpCancel: $("cpCancel"),
+    setFocus: $("setFocus"), setShort: $("setShort"), setLong: $("setLong"), setLongEvery: $("setLongEvery"),
+    setDueH: $("setDueH"), setDue3: $("setDue3"), setDue7: $("setDue7"),
+    setAuto: $("setAuto"), setSound: $("setSound"), setNotify: $("setNotify"),
+    exportBtn: $("exportBtn"), importBtn: $("importBtn"), importFile: $("importFile"), wipeBtn: $("wipeBtn"),
+  };
+
+  const RING_LEN = 2 * Math.PI * 118;
+  els.ringBar.style.strokeDasharray = RING_LEN;
+
+  /* ---------- 渲染 ---------- */
+  function renderTimer() {
+    if (phase === "up") { renderUpTimer(); return; }
+    const total = phaseMs(phase);
+    const left = running ? Math.max(0, endAt - Date.now()) : remainMs;
+    const leftSec = Math.ceil(left / 1000);
+    const mm = String(Math.floor(leftSec / 60)).padStart(2, "0");
+    const ss = String(leftSec % 60).padStart(2, "0");
+    els.timeText.textContent = `${mm}:${ss}`;
+
+    const ratio = total > 0 ? Math.min(1, left / total) : 0;
+    els.ringBar.style.strokeDashoffset = RING_LEN * (1 - ratio);
+
+    document.documentElement.dataset.phase = phase;
+    els.startBtn.textContent = running ? "暂 停" : (left < total ? "继 续" : "开 始");
+    els.phaseHint.textContent = running ? `${PHASE_NAMES[phase]}中…` : PHASE_HINT[phase];
+
+    // 专注时小树随进度生长：🌱 → 🌿 → 🪴
+    if (phase === "focus") {
+      const p = total > 0 ? 1 - left / total : 0;
+      els.sapling.textContent = p < 0.4 ? "🌱" : p < 0.75 ? "🌿" : "🪴";
+      els.sapling.style.visibility = "visible";
+    } else {
+      els.sapling.style.visibility = "hidden";
+    }
+
+    // 标签页标题同步，切走也能看到
+    document.title = running
+      ? `${mm}:${ss} · ${PHASE_NAMES[phase]} — 番茄钟`
+      : "番茄钟 · 专注 + 待办";
+
+    // 未计时时点数字可直接自定义时长
+    els.timeText.title = !running ? "点击自定义时长（分钟）" : "";
+  }
+
+  function editTime() {
+    const mins = Math.round(phaseMs(phase) / 60000);
+    const input = els.timeInput;
+    els.timeText.hidden = true;
+    input.hidden = false;
+    input.value = mins;
+    input.title = "输入分钟数（1~180），回车确认";
+    input.focus(); input.select();
+    let done = false;
+    const finish = saveIt => {
+      if (done) return;
+      done = true;
+      input.hidden = true;
+      els.timeText.hidden = false;
+      if (saveIt) {
+        const v = clampNum(input.value, 1, 180, mins);
+        data.settings[phase] = v;   // 写回设置，下次也用这个时长
+        save();
+        remainMs = v * 60000;
+        renderTimer();
+      }
+    };
+    input.onblur = () => finish(true);
+    input.onkeydown = e => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") finish(false);
+    };
+  }
+  els.timeText.onclick = () => { if (phase !== "up" && !running) editTime(); };
+
+  function renderCurrentTask() {
+    const t = data.todos.find(x => x.id === data.selectedTaskId && !x.done);
+    els.currentTask.innerHTML = t
+      ? `当前任务：<b>${escapeHtml(t.text)}</b>（🍅 ${t.count}${t.due ? ` · 截止 ${dueInfo(t.due).txt}` : ""}）`
+      : "未选择当前任务，去右侧点 🎯 挑一个";
+  }
+
+  // 截止日期：算剩余时间和标签级别（0 无色 1 黄 2 橙 3 红 4 过期）
+  function dueInfo(due) {
+    const [dP, tP] = due.split("T");
+    const [y, m, d] = dP.split("-").map(Number);
+    const [hh, mm] = (tP || "00:00").split(":").map(Number);
+    const diff = new Date(y, m - 1, d, hh, mm).getTime() - Date.now();
+    const s = data.settings;
+    const fmtDur = v => {
+      const hrs = v / 3600000;
+      if (hrs < 1) return Math.max(1, Math.round(v / 60000)) + " 分钟";
+      if (hrs < 24) return Math.round(hrs) + " 小时";
+      return Math.round(hrs / 24) + " 天";
+    };
+    if (diff < 0) return { lvl: 4, txt: "过期 " + fmtDur(-diff) };
+    if (diff <= s.dueHours * 3600000) return { lvl: 3, txt: fmtDur(diff) };
+    if (diff <= s.dueDays3 * 86400000) return { lvl: 2, txt: fmtDur(diff) };
+    if (diff <= s.dueDays7 * 86400000) return { lvl: 1, txt: Math.round(diff / 86400000) + " 天" };
+    return { lvl: 0, txt: due.split("T")[0].slice(5).replace("-", "/") + " 截止" };
+  }
+
+  function editDue(li, t) {
+    const btn = li.querySelector('[data-act="due"]');
+    const input = document.createElement("input");
+    input.type = "datetime-local";
+    input.value = t.due || "";
+    input.className = "due-input";
+    btn.replaceWith(input);
+    input.focus();
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      t.due = input.value || undefined;
+      save(); renderTodos();
+    };
+    input.addEventListener("change", commit);
+    input.onblur = commit;
+    input.onkeydown = e => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") { input.value = t.due || ""; input.blur(); }
+    };
+  }
+
+  function renderTodos() {
+    const done = data.todos.filter(t => t.done).length;
+    els.todoCount.textContent = data.todos.length ? `${data.todos.length - done} 待办 / ${done} 已完成` : "";
+    // 只移除象限内容，保留坐标轴线
+    els.matrix.querySelectorAll(".quad").forEach(el => el.remove());
+
+    // 矩阵摆放：左上 重要不紧急 / 右上 重要且紧急 / 左下 不重要不紧急 / 右下 紧急不重要
+    [2, 1, 4, 3].forEach(q => {
+      const list = data.todos.filter(t => t.q === q);
+      const quad = document.createElement("div");
+      quad.className = "quad";
+      quad.dataset.q = q;
+      const left = list.filter(t => !t.done).length;
+      quad.innerHTML = `<div class="quad-qhead">${QUADS[q].icon} ${QUADS[q].name}<span class="n">${left || ""}</span></div>`;
+      const ul = document.createElement("ul");
+      if (!list.length) ul.innerHTML = `<li class="quad-empty">暂无</li>`;
+
+      list.forEach(t => {
+        const li = document.createElement("li");
+        li.className = "todo-item" + (t.id === data.selectedTaskId && !t.done ? " current" : "") + (t.done ? " done" : "");
+        li.innerHTML = `
+          <button class="pick" title="设为当前任务">${t.id === data.selectedTaskId && !t.done ? "🎯" : "⚪"}</button>
+          <span class="txt">${escapeHtml(t.text)}</span>
+          <button class="due-btn ${t.due ? "" : "none"}" data-act="due" title="${t.due ? "截止 " + t.due.replace("T", " ") + "，点击修改" : "设置截止日期"}">${t.due ? `<span class="due-chip l${dueInfo(t.due).lvl}">${dueInfo(t.due).txt}</span>` : "📅+"}</button>
+          <button class="qtag" title="现在在「${QUADS[t.q].name}」，点击移动到下一个象限">${QUADS[t.q].icon}</button>
+          <span class="pomo">${t.count ? "🍅" + t.count : ""}</span>
+          <button class="del" title="删除">✕</button>`;
+        li.querySelector('[data-act="due"]').onclick = () => editDue(li, t);
+        li.querySelector(".pick").onclick = () => {
+          data.selectedTaskId = data.selectedTaskId === t.id ? null : t.id;
+          save(); renderTodos(); renderCurrentTask();
+        };
+        li.querySelector(".qtag").onclick = () => {
+          t.q = t.q >= 4 ? 1 : t.q + 1;
+          save(); renderTodos();
+        };
+        li.querySelector(".del").onclick = () => {
+          data.todos = data.todos.filter(x => x.id !== t.id);
+          if (data.selectedTaskId === t.id) data.selectedTaskId = null;
+          save(); renderTodos(); renderCurrentTask();
+        };
+        li.querySelector(".txt").ondblclick = () => editTodo(li, t);
+        ul.appendChild(li);
+      });
+      quad.appendChild(ul);
+      els.matrix.appendChild(quad);
+    });
+  }
+
+  function editTodo(li, t) {
+    const span = li.querySelector(".txt");
+    const input = document.createElement("input");
+    input.value = t.text;
+    input.maxLength = 80;
+    input.style.cssText = "flex:1;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);padding:4px 6px;font-size:13px;outline:none;";
+    span.replaceWith(input);
+    input.focus(); input.select();
+    const commit = () => {
+      t.text = input.value.trim() || t.text;
+      save(); renderTodos(); renderCurrentTask();
+    };
+    input.onblur = commit;
+    input.onkeydown = e => { if (e.key === "Enter") input.blur(); if (e.key === "Escape") { input.onblur = null; renderTodos(); } };
+  }
+
+  function renderStats() {
+    const today = data.stats.byDate[dateKey()] || { pomodoros: 0, minutes: 0 };
+    els.chipToday.textContent = today.pomodoros;
+    els.chipMinutes.textContent = today.minutes;
+    els.chipStreak.textContent = calcStreak();
+    renderWeek();
+  }
+
+  function calcStreak() {
+    const by = data.stats.byDate;
+    const d = new Date();
+    if (!(dateKey(d) in by) || by[dateKey(d)].pomodoros === 0) d.setDate(d.getDate() - 1);
+    let streak = 0;
+    while (dateKey(d) in by && by[dateKey(d)].pomodoros > 0) { streak++; d.setDate(d.getDate() - 1); }
+    return streak;
+  }
+
+  function renderWeek() {
+    const days = [];
+    let total = 0;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const k = dateKey(d);
+      const n = (data.stats.byDate[k] || {}).pomodoros || 0;
+      total += n;
+      days.push({ label: i === 0 ? "今天" : `${d.getMonth() + 1}/${d.getDate()}`, n });
+    }
+    const max = Math.max(1, ...days.map(x => x.n));
+    els.weekBars.innerHTML = days.map((x, i) => `
+      <div class="week-col">
+        <div class="week-bar ${i === 6 ? "today" : ""}" style="height:${Math.max(4, x.n / max * 100)}%">
+          ${x.n ? `<span class="num">${x.n}</span>` : ""}
+        </div>
+        <span class="week-lbl">${x.label}</span>
+      </div>`).join("");
+    els.weekSummary.textContent = total ? `本周共 ${total} 🍅` : "从一颗番茄开始 🍅";
+  }
+
+  // 按象限树种画 SVG 小树：sp 为品种（每象限随机 3 种），v 为变体（大小 / 色泽 / 点缀）
+  function shadeHex(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    let r = n >> 16 & 255, g2 = n >> 8 & 255, b = n & 255;
+    if (f >= 0) { r += (255 - r) * f; g2 += (255 - g2) * f; b += (255 - b) * f; }
+    else { r *= 1 + f; g2 *= 1 + f; b *= 1 + f; }
+    return "#" + [r, g2, b].map(x => Math.round(x).toString(16).padStart(2, "0")).join("");
+  }
+  function treeSVG(tr) {
+    const v = tr.v || 0, sp = tr.sp || 0;
+    const size = [0.8, 1, 1.18][v % 3];
+    const G = [["#4a7a58", "#5b8d66", "#6f9f76"], ["#3e6b52", "#517e5f", "#699577"], ["#566f5c", "#6a876e", "#829d85"]];
+    const g = G[v % 3];
+    const key = tr.q + ":" + sp;
+    const u = "u" + (tr.ts || 0).toString(36) + tr.q + "x" + sp + v;
+    const dk = (c, f = -.25) => shadeHex(c, f);
+    const lt = (c, f = .42) => shadeHex(c, f);
+    const defsFor = mid => ({ defs: `<defs><radialGradient id="cg${u}" cx="38%" cy="28%" r="82%"><stop offset="0" stop-color="${lt(mid)}"/><stop offset=".62" stop-color="${mid}"/><stop offset="1" stop-color="${dk(mid)}"/></radialGradient></defs>`, fill: `url(#cg${u})` });
+    const trunkOf = (x, top, w) => `<path d="M${x - w} 44 Q ${x - w * .35} ${top + 8} ${x - w * .2} ${top} L ${x + w * .2} ${top} Q ${x + w * .35} ${top + 8} ${x + w} 44 Z" fill="#6d5a4c"/><path d="M${x + w * .12} ${top + 1} Q ${x + w * .28} ${top + 13} ${x + w * .4} 44 L ${x + w} 44 Q ${x + w * .3} ${top + 10} ${x + w * .16} ${top + 1} Z" fill="#59493d"/>`;
+    let defs = "";
+    let inner = "";
+
+    if (key === "1:0") {       // 橡树：团簇树冠 + 橡果
+      const C = defsFor(g[1]); defs = C.defs;
+      inner = trunkOf(20, 26, 2.2) + `
+        <circle cx="20" cy="16" r="10.5" fill="${C.fill}"/>
+        <circle cx="11.5" cy="21" r="7" fill="${C.fill}"/>
+        <circle cx="28.5" cy="21" r="7" fill="${C.fill}"/>
+        <circle cx="15" cy="10.5" r="6.5" fill="${C.fill}"/>
+        <circle cx="25.5" cy="10.5" r="6.5" fill="${C.fill}"/>
+        <path d="M12 29 Q 20 33 28 29" stroke="${dk(g[0])}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        <circle cx="13.5" cy="13" r=".9" fill="${lt(g[2])}"/>
+        <circle cx="24" cy="9.5" r=".9" fill="${lt(g[2])}"/>
+        <circle cx="29.5" cy="18.5" r=".9" fill="${lt(g[2])}"/>
+        <circle cx="8.5" cy="20" r=".8" fill="${lt(g[2])}"/>` +
+        (v % 2 ? [[15, 16], [26, 20], [21, 24]].map(p =>
+          `<rect x="${p[0] - .4}" y="${p[1] - 3.6}" width=".8" height="1.8" fill="#6d5a4c"/><circle cx="${p[0]}" cy="${p[1]}" r="1.7" fill="#8a6b4f"/><path d="M${p[0] - 1.6} ${p[1] - 1.2} h3.2" stroke="#5c4a3e" stroke-width="1"/>`).join("")
+        : "");
+    } else if (key === "1:1") { // 枫树：团冠裂叶
+      const C = defsFor("#c96a4a"); defs = C.defs;
+      inner = trunkOf(20, 26, 2.2) + `
+        <circle cx="20" cy="16" r="10.5" fill="${C.fill}"/>
+        <circle cx="11.5" cy="21" r="7" fill="${C.fill}"/>
+        <circle cx="28.5" cy="21" r="7" fill="${C.fill}"/>
+        <path d="M6.5 24 l-4.5 1 4.5 2.5 z" fill="${dk("#c96a4a")}"/>
+        <path d="M33.5 24 l4.5 1 -4.5 2.5 z" fill="${dk("#c96a4a")}"/>
+        <circle cx="14" cy="12" r=".9" fill="${lt("#d08a62")}"/>
+        <circle cx="26" cy="12.5" r=".9" fill="${lt("#d08a62")}"/>` +
+        (v % 2 ? `<path d="M30 36 l2.5 -3.5 -1.8 -1 2.6 -2.6" stroke="#c96a4a" stroke-width="1.1" fill="none" stroke-linecap="round"/>` : "");
+    } else if (key === "1:2") { // 苹果树：果带高光
+      const C = defsFor("#4e7d58"); defs = C.defs;
+      inner = trunkOf(20, 26, 2.2) + `
+        <circle cx="20" cy="16" r="10.5" fill="${C.fill}"/>
+        <circle cx="12" cy="21" r="7" fill="${C.fill}"/>
+        <circle cx="28" cy="21" r="7" fill="${C.fill}"/>` +
+        [[15, 13], [25, 16], [20, 22], [10.5, 20]].map(p =>
+          `<circle cx="${p[0]}" cy="${p[1]}" r="2" fill="#c96f5f"/><circle cx="${p[0] - .6}" cy="${p[1] - .6}" r=".55" fill="#e8b3a6"/>`).join("");
+    } else if (key === "2:0") { // 松树：垂缘层塔
+      inner = `<path d="M19 36 h2 v8 h-2 z" fill="#6b5747"/>
+        <path d="M20 1 L28 13 Q20 11 12 13 Z" fill="${g[0]}"/>
+        <path d="M20 8 L31 22 Q20 19.5 9 22 Z" fill="${g[1]}"/>
+        <path d="M20 16 L34 33 Q20 30 6 33 Z" fill="${g[2]}"/>
+        <path d="M20 24 L31.5 37 Q20 35 8.5 37 Z" fill="${dk(g[2], .12)}"/>
+        <path d="M12 13 Q20 15.5 28 13" stroke="${dk(g[0], .25)}" stroke-width=".8" fill="none"/>
+        <path d="M9 22 Q20 25 31 22" stroke="${dk(g[1], .25)}" stroke-width=".8" fill="none"/>`;
+    } else if (key === "2:1") { // 樱花：枝头朵朵
+      const C = defsFor("#d3a4b5"); defs = C.defs;
+      const blossom = (x, y, r) => {
+        let s = "";
+        for (let a = 0; a < 5; a++) {
+          const t = (a * 72 - 90) * Math.PI / 180;
+          s += `<circle cx="${(x + Math.cos(t) * r).toFixed(1)}" cy="${(y + Math.sin(t) * r).toFixed(1)}" r="${(r * .78).toFixed(1)}" fill="${C.fill}"/>`;
+        }
+        return s + `<circle cx="${x}" cy="${y}" r="${(r * .5).toFixed(1)}" fill="#c089a0"/>`;
+      };
+      inner = `<path d="M20 44 V26 M20 32 L12 25 M20 30 L28 24" stroke="#6d5a4c" stroke-width="2" fill="none" stroke-linecap="round"/>`
+        + blossom(12, 22, 3.4) + blossom(28, 21, 3.6) + blossom(20, 12.5, 4.2) + blossom(20, 28.5, 3)
+        + `<circle cx="33" cy="35" r="1.2" fill="#e0bcc9"/><circle cx="7" cy="33" r="1.1" fill="#e0bcc9"/>`;
+    } else if (key === "2:2") { // 银杏：扇形叶
+      const fan = (x, y, r, rot, col) => `<path d="M${x - r} ${y} Q ${x} ${y - r * 1.5} ${x + r} ${y} L ${x + r * .28} ${y + r * 1.7} L ${x - r * .28} ${y + r * 1.7} Z" fill="${col}" transform="rotate(${rot} ${x} ${y})"/>`;
+      inner = trunkOf(20, 27, 1.7) +
+        fan(13.5, 15, 6, -28, "#c9a13b") +
+        fan(26.5, 15, 6, 24, "#d9c26a") +
+        fan(20, 8.5, 5.5, 0, "#e3cf85") +
+        fan(30.5, 25, 5, 55, "#d9c26a") +
+        `<path d="M19 34 h2 M20.5 38 h1.5" stroke="#a8862e" stroke-width=".8" stroke-linecap="round"/>`;
+    } else if (key === "3:0") { // 仙人掌：棱纹
+      inner = `<path d="M11 44 h18 l-2 -5 h-14 z" fill="#b08a80"/>
+        <rect x="16" y="14" width="7" height="30" rx="3.5" fill="${g[1]}"/>
+        <path d="M18 16 v26 M21 16 v26" stroke="${dk(g[1])}" stroke-width=".9" stroke-linecap="round"/>
+        <rect x="7" y="20" width="5" height="12" rx="2.5" fill="${g[2]}"/>
+        <path d="M9.5 21.5 v9" stroke="${dk(g[2])}" stroke-width=".8" stroke-linecap="round"/>
+        <rect x="7" y="28" width="9" height="4" rx="2" fill="${g[2]}"/>
+        <rect x="27" y="16" width="5" height="14" rx="2.5" fill="${g[0]}"/>
+        <path d="M29.5 17.5 v11" stroke="${dk(g[0])}" stroke-width=".8" stroke-linecap="round"/>
+        <path d="M17.5 12.5 l1 -1.5 M22.5 12.5 l-1 -1.5" stroke="#d9c26a" stroke-width="1" stroke-linecap="round"/>`;
+    } else if (key === "3:1") { // 灌木：叶团 + 浆果
+      const leafy = (x, y, r, col) => {
+        let s = `<circle cx="${x}" cy="${y}" r="${r}" fill="${col}"/>`;
+        for (let a = 0; a < 7; a++) {
+          const t = a / 7 * Math.PI * 2;
+          s += `<circle cx="${(x + Math.cos(t) * r * .8).toFixed(1)}" cy="${(y + Math.sin(t) * r * .8).toFixed(1)}" r="${(r * .4).toFixed(1)}" fill="${col}"/>`;
+        }
+        return s;
+      };
+      inner = leafy(14, 36, 7, g[1]) + leafy(25, 34, 8, g[0]) + leafy(19.5, 39, 6, g[2])
+        + `<circle cx="16" cy="34" r="1.4" fill="#b5654f"/><circle cx="15.3" cy="33.3" r=".5" fill="#d9987f"/>
+        <circle cx="26" cy="32" r="1.4" fill="#b5654f"/><circle cx="25.3" cy="31.3" r=".5" fill="#d9987f"/>
+        <circle cx="11.5" cy="35" r=".8" fill="${lt(g[2])}"/><circle cx="28.5" cy="29.5" r=".8" fill="${lt(g[2])}"/>`;
+    } else if (key === "3:2") { // 竹子：竹节垂叶
+      inner = `<rect x="12" y="8" width="3.5" height="36" rx="1.75" fill="${g[1]}"/>
+        <path d="M12 17 h3.5 M12 28 h3.5 M12 38 h3.5" stroke="${dk(g[1])}" stroke-width="1.2"/>
+        <rect x="23" y="16" width="3" height="28" rx="1.5" fill="${g[2]}"/>
+        <path d="M23 25 h3 M23 35 h3" stroke="${dk(g[2])}" stroke-width="1.1"/>
+        <path d="M15 16 q7 -3 12 0 q-7 2.5 -12 0" fill="${g[0]}"/>
+        <path d="M8 12 q-5 -2 -6 -7 q6 1 6 7" fill="${g[2]}"/>
+        <path d="M24 14 q6 -4 10 -2 q-5 4.5 -10 2" fill="${g[0]}"/>`;
+    } else if (key === "4:0") { // 蘑菇：菌伞菌褶草
+      inner = `<path d="M14 44 q1 -4 0 -6 M17 44 q2 -4 4 -5 M23 44 q-1 -4 -2 -5" stroke="#8fac7c" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+        <rect x="17" y="26" width="6" height="17" rx="3" fill="#d8cdb8"/>
+        <path d="M17 30 q3 1.5 6 0" stroke="#c2b49c" stroke-width="1" fill="none"/>
+        <path d="M4 28 a16 14 0 0 1 32 0 z" fill="#a86055"/>
+        <path d="M4 28 h32" stroke="#8a4c44" stroke-width="1.2"/>
+        <path d="M20 14 q-6 1 -9 8" stroke="#c07f72" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <circle cx="13" cy="20" r="2.4" fill="#fff" opacity=".5"/>
+        <circle cx="24" cy="16" r="2" fill="#fff" opacity=".5"/>
+        <circle cx="28" cy="23" r="1.8" fill="#fff" opacity=".5"/>`;
+    } else if (key === "4:1") { // 多肉：盆栽莲座
+      inner = `<path d="M12 44 h16 l-2 -9 h-12 z" fill="#c48b6c"/>
+        <rect x="11" y="33" width="18" height="3.5" rx="1.75" fill="#a9785a"/>
+        <ellipse cx="13.5" cy="28" rx="4" ry="6" fill="${g[1]}" transform="rotate(-38 13.5 28)"/>
+        <ellipse cx="26.5" cy="28" rx="4" ry="6" fill="${g[2]}" transform="rotate(38 26.5 28)"/>
+        <ellipse cx="20" cy="25" rx="4" ry="7.5" fill="${g[0]}"/>
+        <path d="M20 30 q-1 -4 0 -8 M15.5 29 q1 -3 3 -5 M24.5 29 q-1 -3 -3 -5" stroke="#c4d6c4" stroke-width=".9" fill="none" stroke-linecap="round"/>
+        <ellipse cx="20" cy="24" rx="2.2" ry="4.5" fill="#c4d6c4"/>`;
+    } else if (key === "4:2") { // 花丛：五瓣小花
+      const flower = (x, y, r, c1, c2) => {
+        let s = "";
+        for (let a = 0; a < 5; a++) {
+          const t = (a * 72 - 90) * Math.PI / 180;
+          s += `<circle cx="${(x + Math.cos(t) * r).toFixed(1)}" cy="${(y + Math.sin(t) * r).toFixed(1)}" r="${(r * .72).toFixed(1)}" fill="${c1}"/>`;
+        }
+        return s + `<circle cx="${x}" cy="${y}" r="${(r * .5).toFixed(1)}" fill="${c2}"/>`;
+      };
+      inner = `<path d="M13 44 q0 -7 0 -11 M20 44 q0 -9 0 -13 M27 44 q0 -7 0 -11" stroke="${g[1]}" stroke-width="1.5" fill="none"/>
+        <path d="M16 38 q4 -1 5 -4 M24 38 q-4 -1 -5 -4" stroke="${g[1]}" stroke-width="1" fill="none"/>
+        ${flower(13, 30, 2.6, "#c997ab", "#d9c26a")}
+        ${flower(20, 27, 3, "#8fb4cc", "#e3cf85")}
+        ${flower(27, 30, 2.6, "#cfa86b", "#fff")}`;
+    } else if (key === "0:0") { // 野生果树：果带高光
+      const C = defsFor(g[1]); defs = C.defs;
+      inner = trunkOf(20, 26, 1.8) + `
+        <circle cx="20" cy="16" r="10.5" fill="${C.fill}"/>
+        <circle cx="13" cy="21" r="6.5" fill="${C.fill}"/>
+        <circle cx="27" cy="21" r="6.5" fill="${C.fill}"/>` +
+        [[16, 14], [24, 18], [20, 23]].map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="1.8" fill="#d0a468"/><circle cx="${p[0] - .5}" cy="${p[1] - .5}" r=".5" fill="#e9c98f"/>`).join("");
+    } else if (key === "0:1") { // 白桦：黑痕细枝
+      inner = `<path d="M20 44 V20 M20 30 L15 24 M20 26 L25 21" stroke="#dfe3de" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <path d="M19 32 l1.5 -1 M18.5 38 l1.5 -1 M21.5 35 l-1.5 -1" stroke="#5c6660" stroke-width="1.1" stroke-linecap="round"/>
+        <circle cx="20" cy="13" r="8.5" fill="#9db88a"/>
+        <circle cx="14" cy="17" r="5" fill="#b3c9a0"/>
+        <circle cx="26" cy="17" r="5" fill="#8fac7c"/>
+        <circle cx="17" cy="11" r=".8" fill="#d6e2c8"/>`;
+    } else if (key === "0:2") { // 柳树：垂丝
+      inner = `<path d="M20 44 V25 M20 25 L13 19 M20 25 L27 19" stroke="#6d5a4c" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <circle cx="20" cy="13" r="8.5" fill="${g[0]}"/>
+        <path d="M13 16 q-3 12 -1 20 M27 16 q3 12 1 20 M20 19 q0 13 0 21 M16 17 q-1 11 0 19 M24 17 q1 11 0 19" stroke="${g[1]}" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        <circle cx="11" cy="26" r=".9" fill="${g[2]}"/><circle cx="29" cy="27" r=".9" fill="${g[2]}"/><circle cx="20" cy="33" r=".9" fill="${g[2]}"/>`;
+    } else if (key === "1:3") { // 椰子树：垂叶椰果
+      inner = `<path d="M16 44 q2 -20 8 -28" stroke="#a1887f" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <path d="M18 18 q3 -3 6.5 -3.5" stroke="#8d7a6a" stroke-width="1" fill="none" stroke-linecap="round"/>
+        <path d="M24 15 q-1 -9 -8 -13 q10 2 12 10 q-2 2 -4 3 z" fill="#5b8d66"/>
+        <path d="M24 15 q8 -6 15 -4 q-7 6 -13 6 q-1 -1 -2 -2 z" fill="#517e5f"/>
+        <path d="M24 15 q9 1 12 8 q-8 1 -13 -5 q0 -2 1 -3 z" fill="#6f9f76"/>
+        <path d="M24 15 q-9 1 -13 8 q8 1 13 -5 q0 -2 0 -3 z" fill="#7aa883"/>
+        <path d="M24 15 q-4 -8 -12 -9 q6 6 10 10 z" fill="#6f9f76"/>
+        <circle cx="21" cy="17.5" r="2.2" fill="#6b5747"/><circle cx="25.5" cy="18.5" r="2.2" fill="#5c4a3e"/>`;
+    } else if (key === "1:4") { // 芒果树：垂挂芒果
+      const C = defsFor("#4a7a58"); defs = C.defs;
+      inner = trunkOf(20, 26, 2) + `
+        <circle cx="20" cy="16" r="10.5" fill="${C.fill}"/>
+        <circle cx="12.5" cy="21" r="6.8" fill="${C.fill}"/>
+        <circle cx="27.5" cy="21" r="6.8" fill="${C.fill}"/>` +
+        [[15, 16], [24, 18], [20, 24]].map(p =>
+          `<path d="M${p[0]} ${p[1] - 2} q0 -2 1.5 -2.5" stroke="#6d5a4c" stroke-width=".8" fill="none"/><ellipse cx="${p[0]}" cy="${p[1]}" rx="1.8" ry="2.6" fill="#d99a4e"/><ellipse cx="${p[0] - .5}" cy="${p[1] - .8}" rx=".5" ry="1" fill="#e8bd7c"/>`).join("");
+    } else if (key === "2:3") { // 雪松：垂枝挂雪
+      inner = `<path d="M19 36 h2 v8 h-2 z" fill="#6d4c41"/>
+        <path d="M20 1 L27 13 Q20 15 13 13 Z" fill="#2f6e5a"/>
+        <path d="M20 8 L30 22 Q20 24.5 10 22 Z" fill="#35796b"/>
+        <path d="M20 17 L33 33 Q20 36 7 33 Z" fill="#3d8b7a"/>
+        <path d="M13 13 Q20 16.5 27 13" stroke="#e8f4f8" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <path d="M10 22 Q20 26 30 22" stroke="#e8f4f8" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M7 33 Q20 37.5 33 33" stroke="#e8f4f8" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+    } else if (key === "2:4") { // 玉兰：枝头紫花
+      const bloom = (x, y, r, c1, c2) => {
+        let s = "";
+        for (let a = 0; a < 5; a++) {
+          const t = (a * 72 - 90) * Math.PI / 180;
+          s += `<ellipse cx="${(x + Math.cos(t) * r * .85).toFixed(1)}" cy="${(y + Math.sin(t) * r * .85).toFixed(1)}" rx="${(r * .58).toFixed(1)}" ry="${(r * .44).toFixed(1)}" fill="${c1}" transform="rotate(${a * 72} ${x} ${y})"/>`;
+        }
+        return s + `<circle cx="${x}" cy="${y}" r="${(r * .38).toFixed(1)}" fill="${c2}"/>`;
+      };
+      inner = `<path d="M20 44 V26 M20 32 L13 26 M20 30 L27 25 M13 26 L9 22" stroke="#6d5a4c" stroke-width="2" fill="none" stroke-linecap="round"/>`
+        + bloom(20, 15, 4.4, "#cdb3da", "#9a6fae") + bloom(11, 24, 3.8, "#b48cc4", "#8a5f9e") + bloom(28, 23, 3.8, "#cdb3da", "#9a6fae");
+    } else if (key === "3:3") { // 仙人球：棱刺顶花
+      inner = `<path d="M12 44 h16 l-2 -8 h-12 z" fill="#c48b6c"/>
+        <rect x="14" y="36" width="12" height="2" rx="1" fill="#a9785a"/>
+        <circle cx="20" cy="28" r="9" fill="#7aa883"/>
+        <path d="M20 19 v18 M13.5 22 q-2 6 0 13 M26.5 22 q2 6 0 13" stroke="#517e5f" stroke-width="1" fill="none" stroke-linecap="round"/>
+        <path d="M20 20 v-3 M14 23 l-2.5 -2 M26 23 l2.5 -2 M12 30 h-3 M28 30 h3" stroke="#e3cf85" stroke-width="1" stroke-linecap="round"/>
+        <circle cx="20" cy="17" r="2.5" fill="#cf9dae"/>`;
+    } else if (key === "3:4") { // 芦荟：厚叶白斑
+      inner = `<path d="M13 44 h14 l-1.5 -7 h-11 z" fill="#c48b6c"/>
+        <ellipse cx="20" cy="27" rx="3" ry="11" fill="#6f9f76"/>
+        <ellipse cx="13" cy="30" rx="3" ry="8" fill="#558b2f" transform="rotate(-28 13 30)"/>
+        <ellipse cx="27" cy="30" rx="3" ry="8" fill="#8fac7c" transform="rotate(28 27 30)"/>
+        <ellipse cx="20" cy="26" rx="1.2" ry="8" fill="#dcedc8" opacity=".7"/>
+        <path d="M17.5 24 l1 4 M22.5 24 l-1 4" stroke="#dcedc8" stroke-width=".7" stroke-linecap="round" opacity=".8"/>`;
+    } else if (key === "4:3") { // 四叶草：心形叶
+      const heart = (x, y, r, col) => `<path d="M${x} ${y + r} C ${x - r * 1.6} ${y}, ${x - r * .5} ${y - r * 1.2}, ${x} ${y - r * .1} C ${x + r * .5} ${y - r * 1.2}, ${x + r * 1.6} ${y}, ${x} ${y + r} Z" fill="${col}"/>`;
+      inner = `<path d="M14 44 q0 -8 3 -11 M26 44 q0 -8 -3 -11 M20 44 q0 -10 0 -13" stroke="#5b8d66" stroke-width="1.4" fill="none"/>
+        ${heart(13, 28, 2.8, "#5b8d66")}${heart(27, 31, 2.6, "#6a876e")}
+        ${heart(17.8, 22, 2.6, "#6f9f76")}${heart(22.6, 22, 2.6, "#6f9f76")}${heart(20.2, 25, 2.6, "#7aa883")}${heart(20.2, 19.6, 2.4, "#829d85")}
+        <circle cx="20.2" cy="22" r="1" fill="#dcedc8"/>`;
+    } else if (key === "4:4") { // 蕨类：羽叶卷芽
+      inner = `<path d="M20 44 q1 -14 3 -24 q.5 -4 3 -6" stroke="#5b8d66" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        <path d="M25.5 14 a2.4 2.4 0 1 1 2 -3" stroke="#6f9f76" stroke-width="1.2" fill="none"/>
+        <ellipse cx="16.5" cy="36" rx="4.5" ry="1.7" fill="#6f9f76" transform="rotate(22 16.5 36)"/>
+        <ellipse cx="24" cy="34" rx="4.2" ry="1.7" fill="#7aa883" transform="rotate(-22 24 34)"/>
+        <ellipse cx="17.5" cy="29" rx="3.8" ry="1.5" fill="#6f9f76" transform="rotate(28 17.5 29)"/>
+        <ellipse cx="23.5" cy="27.5" rx="3.4" ry="1.5" fill="#7aa883" transform="rotate(-28 23.5 27.5)"/>
+        <ellipse cx="19" cy="23" rx="3" ry="1.4" fill="#8fb89a" transform="rotate(30 19 23)"/>
+        <ellipse cx="23" cy="21.5" rx="2.7" ry="1.3" fill="#8fb89a" transform="rotate(-30 23 21.5)"/>
+        <ellipse cx="20.5" cy="18" rx="2.2" ry="1.2" fill="#9db88a" transform="rotate(35 20.5 18)"/>`;
+    } else if (key === "0:3") { // 老榕树：巨冠气根
+      inner = `<ellipse cx="20" cy="12" rx="16" ry="8.5" fill="#33691e"/>
+        <ellipse cx="11" cy="17" rx="6.5" ry="5.5" fill="#3e6b52"/>
+        <ellipse cx="29" cy="17" rx="6.5" ry="5.5" fill="#517e5f"/>
+        <path d="M14 44 v-14 M26 44 v-16 M20 44 v-18" stroke="#5c4a3e" stroke-width="2.6" fill="none"/>
+        <path d="M16 44 v-11 M24 44 v-10 M18 44 v-8" stroke="#7a6455" stroke-width=".9" fill="none"/>
+        <circle cx="14" cy="9" r=".8" fill="#6a876e"/><circle cx="26" cy="10" r=".8" fill="#6a876e"/>`;
+    } else if (key === "0:4") { // 桃树：粉冠桃果
+      inner = `<rect x="18.5" y="27" width="3" height="17" rx="1.5" fill="#6d5a4c"/>
+        <circle cx="20" cy="16" r="11" fill="#e0bcc9"/>
+        <circle cx="13" cy="21" r="7" fill="#cf9dae"/>
+        <circle cx="27" cy="21" r="7" fill="#e8d5da"/>
+        <circle cx="16" cy="15" r="2" fill="#d9987f"/>
+        <circle cx="24" cy="19" r="2" fill="#cc8a70"/>` +
+        (v % 2 ? `<circle cx="31" cy="35" r="1.1" fill="#e8d5da"/>` : "");
+    } else {                    // 枯木
+      inner = `<path d="M20 44 v-20" stroke="#6d5a4c" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <path d="M20 30 l-7 -6 M20 26 l6 -7 M20 34 l-5 -3 M20 38 l4 -2" stroke="#8d7a6a" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <path d="M20 24 q-5 -6 1 -10 q4 5 -1 10" fill="#b3a48f"/>
+        <path d="M12 44 q2 -3 4 0 M26 44 q2 -3 4 0" stroke="#8fac7c" stroke-width="1" fill="none"/>`;
+    }
+    const w = Math.round(40 * size), h = Math.round(46 * size);
+    return `<svg width="${w}" height="${h}" viewBox="0 0 40 46">${defs}<ellipse cx="20" cy="44.6" rx="13" ry="1.8" fill="rgba(70, 55, 30, .16)"/>${inner}</svg>`;
+  }
+
+  /* ---------- 森林时间范围筛选 ---------- */
+  let forestRange = { from: "", to: "", preset: "all" };   // 空 = 全部
+  const dkeyOf = dt =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  const dkeyOffset = days => { const t = new Date(); t.setDate(t.getDate() + days); return dkeyOf(t); };
+  const inForestRange = tr =>
+    (!forestRange.from || tr.d >= forestRange.from) && (!forestRange.to || tr.d <= forestRange.to);
+  function applyForestRange(from, to, preset) {
+    forestRange = { from: from || "", to: to || "", preset: preset || "custom" };
+    syncForestFilter();
+    renderForest();
+  }
+  function syncForestFilter() {
+    els.forestFilter.querySelectorAll(".ff-btn[data-r]").forEach(b => {
+      b.classList.toggle("active", b.dataset.r === forestRange.preset);
+    });
+    els.ffFrom.value = forestRange.from;
+    els.ffTo.value = forestRange.to;
+    els.forestFilter.querySelector('[data-r="clear"]').hidden = forestRange.preset === "all";
+  }
+
+  function renderForest() {
+    const total = data.forest.length;
+    const list = data.forest.filter(inForestRange);      // 范围内的树
+    const ranged = forestRange.from || forestRange.to;
+    const withered = list.filter(t => t.q === -1).length;
+    const todayN = list.filter(t => t.d === dateKey()).length;
+    els.forestSummary.textContent = ranged
+      ? (list.length
+        ? `范围 ${forestRange.from || "…"} ~ ${forestRange.to || "…"}：${list.length} 棵${withered ? `（🥀 ${withered}）` : ""} · 今天 ${todayN} 棵`
+        : `范围 ${forestRange.from || "…"} ~ ${forestRange.to || "…"} 内还没有树`)
+      : (total
+        ? `共 ${total} 棵${withered ? `（🥀 ${withered}）` : ""} · 今天 ${todayN} 棵`
+        : "完成第一个专注，种下第一棵树");
+
+    if (!list.length) {
+      els.forestBox.innerHTML = `<div class="forest-screen"><div class="forest-empty">${
+        ranged ? "🕰️ 这个范围内没有树，换个时间段试试" : "🌱 空空如也，开始第一个专注吧"}</div></div>`;
+      return;
+    }
+
+    // 一整块风景屏幕：树按种植时间的伪随机位置散落在山坡上，越靠下（越近）越大
+    const MAX = 60;
+    const shown = list.slice(-MAX);
+    const older = list.length - shown.length;
+    const now = Date.now();
+    const today = dateKey();
+    const treesHtml = shown.map(tr => {
+      const x = 3 + ((tr.ts % 89) / 89) * 90;                // 3~93%
+      const depth = (Math.floor(tr.ts / 89) % 100) / 100;     // 0~1 越大越近
+      const bottom = 3 + depth * 26;                          // 3~29%
+      const scale = (0.72 + depth * 0.55).toFixed(2);
+      const z = Math.round(10 + bottom);
+      // 空气透视：越远的树越褪色、越淡
+      const filt = depth < 0.34 ? "saturate(.55) brightness(1.07) opacity(.8)"
+        : depth < 0.67 ? "saturate(.78) opacity(.92)" : "none";
+      const fresh = tr.d === today && now - tr.ts < 60000;
+      const tip = `${tr.d} · ${QUADS[tr.q] ? QUADS[tr.q].name : "树"}${tr.t ? " · " + tr.t : ""}`;
+      return `<span class="fs-tree${fresh ? " new" : ""}" style="left:${x.toFixed(1)}%;bottom:${bottom.toFixed(1)}%;z-index:${z};transform:scale(${scale});filter:${filt}" title="${escapeHtml(tip)}">${treeSVG(tr)}</span>`;
+    }).join("");
+    els.forestBox.innerHTML = `
+      <div class="forest-screen">
+        <div class="fs-sun"></div><div class="fs-moon"></div><div class="fs-stars"></div>
+        <div class="fs-cloud c1"></div><div class="fs-cloud c2"></div>
+        <svg class="fs-hills" viewBox="0 0 400 120" preserveAspectRatio="none">
+          <path class="hill-back" d="M0 48 Q 80 12 190 44 T 400 34 V120 H0 Z"/>
+          <path class="hill-mid" d="M0 70 Q 110 38 230 64 T 400 56 V120 H0 Z"/>
+          <path class="hill-front" d="M0 92 Q 120 60 250 84 T 400 78 V120 H0 Z"/>
+          <rect class="hill-mist" x="0" y="50" width="400" height="18"/>
+        </svg>
+        ${treesHtml}
+        ${older ? `<span class="f-more" title="更早的树都在这片土地里">+${older}</span>` : ""}
+      </div>`;
+  }
+
+  const escapeHtml = s => s.replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  /* ---------- 计时核心 ---------- */
+  function startTick() {
+    stopTick();
+    tickTimer = setInterval(() => {
+      if (phase === "up") { renderTimer(); return; }
+      if (Date.now() >= endAt) completePhase();
+      else renderTimer();
+    }, 250);
+  }
+  function stopTick() { if (tickTimer) { clearInterval(tickTimer); tickTimer = null; } }
+
+  function start() {
+    if (running) return;
+    if (phase === "up") { startAt = Date.now(); running = true; startTick(); renderTimer(); return; }
+    const total = phaseMs(phase);
+    if (remainMs <= 0 || remainMs >= total) remainMs = total;
+    endAt = Date.now() + remainMs;
+    running = true;
+    startTick(); renderTimer();
+  }
+  function pause() {
+    if (!running || phase === "up") return;
+    remainMs = Math.max(0, endAt - Date.now());
+    running = false;
+    stopTick(); renderTimer();
+  }
+  function resetPhase() {
+    // 专注计时中重置：小树枯萎（没开跑的重置不算）
+    if (running && phase === "focus") {
+      const task = data.todos.find(x => x.id === data.selectedTaskId && !x.done);
+      data.forest.push({ d: dateKey(), q: -1, sp: 0, t: task ? task.text : "", ts: Date.now(), v: Math.floor(Math.random() * 3) });
+      save(); renderForest();
+      flashTitle("🥀 树枯萎了…下次坚持到底");
+    }
+    running = false; stopTick();
+    remainMs = phaseMs(phase);
+    document.body.classList.remove("flash");
+    renderTimer();
+  }
+  function switchPhase(p, autostart) {
+    phase = p;
+    remainMs = phaseMs(p);
+    running = false; stopTick();
+    document.body.classList.remove("flash");
+    document.querySelectorAll("#modes button").forEach(b =>
+      b.classList.toggle("active", b.dataset.phase === p));
+    renderTimer();
+    if (autostart) start();
+  }
+
+  function completePhase() {
+    running = false; stopTick();
+    remainMs = 0;
+    playSound(phase);
+    notifyDesktop(phase);
+
+    if (phase === "focus") {
+      // 计入统计
+      const st = todayStat();
+      st.pomodoros += 1;
+      st.minutes += phaseMinutes("focus");
+      data.cycle += 1;
+      const task = data.todos.find(x => x.id === data.selectedTaskId && !x.done);
+      if (task) task.count += 1;
+      // 种树：手动选过树种就用固定的，否则按任务象限随机
+      const tr = pickTree(task);
+      data.forest.push({ d: dateKey(), q: tr.q, sp: tr.sp, t: task ? task.text : "", ts: Date.now(), v: Math.floor(Math.random() * 3) });
+      save();
+      renderStats(); renderTodos(); renderCurrentTask(); renderForest();
+
+      const useLong = data.cycle >= data.settings.longEvery;
+      if (useLong) data.cycle = 0;
+      flashTitle(`🍅 专注完成！种下${TREE_NAMES[tr.q + ":" + tr.sp]}`);
+      switchPhase(useLong ? "long" : "short", data.settings.autoNext);
+    } else {
+      flashTitle("☕ 休息结束，开始下一轮");
+      switchPhase("focus", data.settings.autoNext);
+    }
+  }
+
+  function renderUpTimer() {
+    document.documentElement.dataset.phase = "focus"; // 沿用专注红
+    const elapsed = running ? Date.now() - startAt : 0;
+    const totalSec = Math.floor(elapsed / 1000);
+    const hh = Math.floor(totalSec / 3600);
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    els.timeText.textContent = hh > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
+    els.ringBar.style.strokeDashoffset = 0; // 满环
+    els.startBtn.textContent = running ? "结 束" : "开 始";
+    els.phaseHint.textContent = running
+      ? `正计时中 · 已专注 ${Math.floor(totalSec / 60)} 分钟`
+      : "不限时长，随时开始";
+    const mins = Math.floor(elapsed / 60000);
+    els.sapling.textContent = mins < 5 ? "🌱" : mins < 20 ? "🌿" : "🪴";
+    els.sapling.style.visibility = "visible";
+    document.title = running
+      ? `⏱ ${els.timeText.textContent} · 正计时 — 番茄钟`
+      : "番茄钟 · 专注 + 待办";
+  }
+
+  function finishCountUp() {
+    const mins = Math.floor((Date.now() - startAt) / 60000);
+    running = false; stopTick();
+    if (mins < 1) {
+      flashTitle("⏱ 不足 1 分钟，这次就不记录啦");
+      switchPhase("up", false);
+      return;
+    }
+    // 时长始终入账；满 5 分钟种树，满 25 分钟按一个番茄计
+    const st = todayStat();
+    st.minutes += mins;
+    const task = data.todos.find(x => x.id === data.selectedTaskId && !x.done);
+    let extra = "";
+    if (mins >= 5) {
+      const tr = pickTree(task);
+      data.forest.push({ d: dateKey(), q: tr.q, sp: tr.sp, t: task ? task.text : "", ts: Date.now(), v: Math.floor(Math.random() * 3) });
+      extra = "，种下一棵树";
+      if (mins >= 25) {
+        st.pomodoros += 1;
+        data.cycle += 1;
+        if (task) task.count += 1;
+        extra = "，计 🍅×1";
+      }
+    }
+    const useLong = mins >= 25 && data.cycle >= data.settings.longEvery;
+    if (useLong) data.cycle = 0;
+    save();
+    renderStats(); renderTodos(); renderCurrentTask(); renderForest();
+    flashTitle(`⏱ 正计时结束：${mins} 分钟${extra}`);
+    switchPhase(useLong ? "long" : "short", false);
+  }
+
+  function flashTitle(msg) {
+    document.body.classList.add("flash");
+    const restore = document.title;
+    let flip = false;
+    clearInterval(flashTimer);
+    flashTimer = setInterval(() => {
+      document.title = flip ? restore : `🔔 ${msg}`;
+      flip = !flip;
+    }, 900);
+    // 15 秒后停止闪烁，恢复常规标题（若计时已重启会被 renderTimer 覆盖）
+    setTimeout(() => { clearInterval(flashTimer); document.body.classList.remove("flash"); }, 15000);
+  }
+
+  /* ---------- 提示音（Web Audio 合成，无需音频文件） ---------- */
+  function playSound(p) {
+    if (!data.settings.sound) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = p === "focus" ? [660, 880, 1100] : [880, 660];
+      notes.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine"; osc.frequency.value = f;
+        const t0 = ctx.currentTime + i * 0.28;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t0); osc.stop(t0 + 0.26);
+      });
+      setTimeout(() => ctx.close(), notes.length * 300 + 400);
+    } catch { /* 无声环境忽略 */ }
+  }
+
+  function notifyDesktop(p) {
+    if (!data.settings.notify || !("Notification" in window) || Notification.permission !== "granted") return;
+    const msg = p === "focus" ? { title: "🍅 专注完成！", body: "休息一下吧" }
+                              : { title: "☕ 休息结束", body: "准备好开始下一轮专注" };
+    new Notification(msg.title, { body: msg.body });
+  }
+
+  /* ---------- 事件绑定 ---------- */
+  els.startBtn.onclick = () => {
+    if (phase === "up" && running) { finishCountUp(); return; }
+    running ? pause() : start();
+  };
+
+  els.resetBtn.onclick = resetPhase;
+  els.skipBtn.onclick = () => {
+    if (phase === "focus") {
+      // 跳过不计入统计，也不算完成一轮
+      switchPhase(data.cycle >= data.settings.longEvery ? "long" : "short", data.settings.autoNext);
+    } else {
+      switchPhase("focus", data.settings.autoNext);
+    }
+  };
+
+  els.modes.onclick = e => {
+    const btn = e.target.closest("button[data-phase]");
+    if (btn) switchPhase(btn.dataset.phase, false);
+  };
+
+  function addTodo() {
+    const text = els.todoInput.value.trim();
+    if (!text) return;
+    data.todos.unshift({ id: Date.now() + "" + Math.floor(Math.random() * 1e4), text, done: false, count: 0, q: newTaskQ });
+    els.todoInput.value = "";
+    save(); renderTodos();
+  }
+  els.todoAddBtn.onclick = addTodo;
+  els.todoInput.onkeydown = e => { if (e.key === "Enter") addTodo(); };
+  els.qPicker.onclick = e => {
+    const btn = e.target.closest("button[data-q]");
+    if (!btn) return;
+    newTaskQ = parseInt(btn.dataset.q, 10);
+    els.qPicker.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === btn));
+  };
+  els.clearDoneBtn.onclick = () => {
+    if (!data.todos.some(t => t.done)) return;
+    data.todos = data.todos.filter(t => !t.done);
+    save(); renderTodos();
+  };
+
+  els.themeBtn.onclick = () => {
+    data.settings.theme = data.settings.theme === "dark" ? "light" : "dark";
+    save(); applyTheme();
+  };
+  function applyTheme() {
+    const dark = data.settings.theme === "dark";
+    document.documentElement.dataset.theme = data.settings.theme;
+    els.themeBtn.textContent = dark ? "☀️" : "🌙";
+  }
+
+  /* ---------- 设置 ---------- */
+  els.settingsBtn.onclick = () => {
+    const s = data.settings;
+    els.setFocus.value = s.focus; els.setShort.value = s.short;
+    els.setLong.value = s.long; els.setLongEvery.value = s.longEvery;
+    els.setDueH.value = s.dueHours; els.setDue3.value = s.dueDays3; els.setDue7.value = s.dueDays7;
+    els.setAuto.checked = s.autoNext; els.setSound.checked = s.sound; els.setNotify.checked = s.notify;
+    els.settingsMask.hidden = false;
+  };
+  els.settingsClose.onclick = () => {
+    const s = data.settings;
+    const clamp = (v, lo, hi, dft) => { v = parseInt(v, 10); return isNaN(v) ? dft : Math.min(hi, Math.max(lo, v)); };
+    s.focus = clamp(els.setFocus.value, 1, 180, 25);
+    s.short = clamp(els.setShort.value, 1, 60, 5);
+    s.long = clamp(els.setLong.value, 1, 120, 15);
+    s.longEvery = clamp(els.setLongEvery.value, 2, 10, 4);
+    s.dueHours = clamp(els.setDueH.value, 1, 72, 8);
+    s.dueDays3 = clamp(els.setDue3.value, 1, 30, 3);
+    s.dueDays7 = clamp(els.setDue7.value, 1, 30, 7);
+    s.autoNext = els.setAuto.checked;
+    s.sound = els.setSound.checked;
+    const wantNotify = els.setNotify.checked;
+    if (wantNotify && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().then(p => { s.notify = p === "granted"; save(); renderTimer(); });
+    } else { s.notify = wantNotify; }
+    if (data.cycle >= s.longEvery) data.cycle = 0;
+    save(); renderTodos(); renderCurrentTask();
+    if (!running) resetPhase();
+    els.settingsMask.hidden = true;
+  };
+  els.settingsMask.onclick = e => { if (e.target === els.settingsMask) els.settingsClose.onclick(); };
+
+  els.exportBtn.onclick = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `番茄钟备份_${dateKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  els.importBtn.onclick = () => els.importFile.click();
+  els.importFile.onchange = () => {
+    const file = els.importFile.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = JSON.parse(reader.result);
+        if (!imported || typeof imported !== "object" || !imported.settings) throw new Error("格式不对");
+        data = { ...defaultData(), ...imported };
+        save(); resetPhase(); renderTodos(); renderCurrentTask(); renderStats(); renderForest(); applyTheme();
+        alert("导入成功");
+      } catch { alert("导入失败：文件格式不正确"); }
+    };
+    reader.readAsText(file, "utf-8");
+    els.importFile.value = "";
+  };
+  els.wipeBtn.onclick = () => {
+    if (!confirm("确定清空所有数据吗？（待办、统计、设置都会删除）")) return;
+    data = defaultData();
+    save(); resetPhase(); renderTodos(); renderCurrentTask(); renderStats(); renderForest(); applyTheme();
+    els.settingsMask.hidden = true;
+  };
+
+  // 选树：treePick 手动指定优先，否则按任务象限随机
+  function pickTree(task) {
+    const tp = data.settings.treePick;
+    if (tp) return { q: tp.q, sp: tp.sp };
+    return { q: task ? task.q : 0, sp: Math.floor(Math.random() * 5) };
+  }
+
+  function buildTreePicker() {
+    const opts = [{ q: null, sp: null, name: "🎲 随机" }];
+    for (const q of [1, 2, 3, 4, 0])
+      for (let sp = 0; sp < 5; sp++)
+        opts.push({ q, sp, name: TREE_NAMES[q + ":" + sp], ts: 1e15 + (q + 1) * 10 + sp });
+    const tp = data.settings.treePick;
+    els.treeGrid.innerHTML = opts.map(o => {
+      const active = o.q === null ? !tp : (tp && tp.q === o.q && tp.sp === o.sp);
+      const face = o.q === null ? `<div class="tree-dice">🎲</div>` : treeSVG({ q: o.q, sp: o.sp, v: 1 });
+      return `<button class="tree-opt${active ? " active" : ""}" data-q="${o.q ?? ""}" data-sp="${o.sp ?? ""}" type="button">${face}<span>${o.name}</span></button>`;
+    }).join("");
+    els.treeGrid.querySelectorAll(".tree-opt").forEach(btn => {
+      btn.onclick = () => {
+        const q = btn.dataset.q === "" ? null : parseInt(btn.dataset.q, 10);
+        const sp = btn.dataset.sp === "" ? null : parseInt(btn.dataset.sp, 10);
+        data.settings.treePick = q === null ? null : { q, sp };
+        save(); updateSaplingTitle(); buildTreePicker();
+      };
+    });
+  }
+
+  function updateSaplingTitle() {
+    const tp = data.settings.treePick;
+    els.sapling.title = "点击选树种 · 当前：" + (tp ? TREE_NAMES[tp.q + ":" + tp.sp] : "随机（按任务象限）");
+  }
+
+  els.sapling.onclick = () => { buildTreePicker(); els.treeMask.hidden = false; };
+  els.treeClose.onclick = () => { els.treeMask.hidden = true; };
+  els.treeMask.onclick = e => { if (e.target === els.treeMask) els.treeClose.onclick(); };
+
+  /* ---------- 生理周期（日历法估算） ---------- */
+  const clampNum = (v, lo, hi, dft) => {
+    v = parseInt(v, 10);
+    return isNaN(v) ? dft : Math.min(hi, Math.max(lo, v));
+  };
+  const parseKey = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const addDays = (dt, n) => { const x = new Date(dt); x.setDate(x.getDate() + n); return x; };
+  const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+  const fmtDate = dt => `${dt.getMonth() + 1}月${dt.getDate()}日`;
+
+  function computePeriod() {
+    const p = data.period;
+    const starts = [...p.starts].sort().reverse();
+    if (!starts.length) return null;
+
+    // 平均周期：取最近 6 次间隔的平均；手动模式则用设定值
+    const intervals = [];
+    for (let i = 0; i + 1 < starts.length && i < 6; i++)
+      intervals.push(daysBetween(parseKey(starts[i + 1]), parseKey(starts[i])));
+    let avg = p.cycleMode === "manual"
+      ? p.cycleManual
+      : (intervals.length ? Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length) : 28);
+    avg = Math.min(45, Math.max(20, avg));
+    const irregular = intervals.length >= 3 && Math.max(...intervals) - Math.min(...intervals) > 7;
+
+    const todayD = parseKey(dateKey());
+    const lastD = parseKey(starts[0]);
+    const cycleDay = daysBetween(lastD, todayD) + 1;
+    const onPeriod = cycleDay >= 1 && cycleDay <= p.periodLen;
+
+    // 预测：最后一次记录 + k 个周期，取前 3 个不在今天之前的
+    const upcomingAll = [];
+    for (let k = 1; upcomingAll.length < 4; k++) {
+      const d = addDays(lastD, k * avg);
+      if (d >= todayD) upcomingAll.push(d);
+    }
+    const next = upcomingAll[0];
+    const ovul = addDays(next, -14); // 排卵日 ≈ 下次月经前 14 天
+    return {
+      avg, cycleDay, onPeriod, periodLen: p.periodLen,
+      next, until: daysBetween(todayD, next),
+      ovul, fertile: [addDays(ovul, -5), addDays(ovul, 1)],
+      upcoming: upcomingAll.slice(0, 3),
+      irregular,
+    };
+  }
+
+  function renderPeriod() {
+    const P = computePeriod();
+    let html = "";
+    if (!P) {
+      html = `<div class="p-empty-tip">👇 在下方记录最近一次月经的第一天，就能开始预测啦</div>`;
+    } else {
+      const late = P.cycleDay - 1 - P.avg;
+      html = `
+        ${P.onPeriod ? `<span class="p-badge">🌸 今天是经期第 ${P.cycleDay} 天，好好休息</span>` : ""}
+        <div class="p-pred">
+          <div class="row"><span class="lbl">下次月经</span><b>${fmtDate(P.next)}（还有 ${P.until} 天）</b></div>
+          <div class="row"><span class="lbl">当前周期</span><span>第 ${P.cycleDay} 天 · 周期约 ${P.avg} 天${late > 0 ? `（已推迟 ${late} 天）` : ""}</span></div>
+          <div class="row"><span class="lbl">排卵日约</span><span>${fmtDate(P.ovul)}</span></div>
+          <div class="row"><span class="lbl">易孕窗口</span><span>${fmtDate(P.fertile[0])} ~ ${fmtDate(P.fertile[1])}</span></div>
+          <div class="row"><span class="lbl">之后预测</span><span>${P.upcoming.map(fmtDate).join("、")}</span></div>
+          ${P.irregular ? `<div class="row"><span class="lbl">提示</span><span>近期周期波动较大，预测仅供参考</span></div>` : ""}
+        </div>`;
+    }
+
+    const starts = [...data.period.starts].sort().reverse();
+    const shown = starts.slice(0, 12);
+    html += `
+      <div class="p-sect">月经第一天记录（共 ${starts.length} 条，显示最近 ${shown.length} 条）</div>
+      <div class="p-records">
+        ${shown.length ? shown.map((s, i) => `
+          <div class="p-rec">
+            <span>${s}</span>
+            <button class="del" data-d="${s}" title="删除这条记录">✕</button>
+            <span class="len">${i + 1 < starts.length ? `该周期 ${daysBetween(parseKey(starts[i + 1]), parseKey(starts[i]))} 天` : ""}</span>
+          </div>`).join("")
+        : `<div class="quad-empty">还没有记录</div>`}
+      </div>`;
+    els.periodBody.innerHTML = html;
+    els.periodBody.querySelectorAll(".p-rec .del").forEach(btn => {
+      btn.onclick = () => {
+        data.period.starts = data.period.starts.filter(x => x !== btn.dataset.d);
+        save(); renderPeriod(); updatePeriodBtnTitle();
+      };
+    });
+  }
+
+  function syncPeriodInputs() {
+    els.pLen.value = data.period.periodLen;
+    els.pMode.value = data.period.cycleMode;
+    els.pManual.value = data.period.cycleManual;
+    els.pManual.style.display = data.period.cycleMode === "manual" ? "" : "none";
+    els.pDate.max = dateKey();
+  }
+
+  function updatePeriodBtnTitle() {
+    const P = computePeriod();
+    els.periodBtn.title = P
+      ? `生理周期 · 距下次约 ${Math.max(0, P.until)} 天`
+      : "生理周期记录与预测";
+  }
+
+  els.periodBtn.onclick = () => { syncPeriodInputs(); renderPeriod(); els.periodMask.hidden = false; };
+  els.periodClose.onclick = () => { els.periodMask.hidden = true; };
+  els.periodMask.onclick = e => { if (e.target === els.periodMask) els.periodClose.onclick(); };
+
+  els.pAddBtn.onclick = () => {
+    const v = els.pDate.value;
+    if (!v) { alert("先选一个日期"); return; }
+    if (v > dateKey()) { alert("不能记录未来的日期"); return; }
+    if (data.period.starts.includes(v)) { alert("这一天已经记录过啦"); return; }
+    data.period.starts.push(v);
+    save(); els.pDate.value = "";
+    renderPeriod(); updatePeriodBtnTitle();
+  };
+  els.pLen.onchange = () => { data.period.periodLen = clampNum(els.pLen.value, 1, 14, 5); save(); renderPeriod(); };
+  els.pMode.onchange = () => {
+    data.period.cycleMode = els.pMode.value === "manual" ? "manual" : "auto";
+    els.pManual.style.display = data.period.cycleMode === "manual" ? "" : "none";
+    save(); renderPeriod(); updatePeriodBtnTitle();
+  };
+  els.pManual.onchange = () => { data.period.cycleManual = clampNum(els.pManual.value, 20, 45, 28); save(); renderPeriod(); updatePeriodBtnTitle(); };
+
+  /* ---------- 待办集（习惯打卡） ---------- */
+  const GCOLORS = ["#4a7fd4", "#3d9a6c", "#d4883d", "#9a6fd4", "#d4547f", "#4ab8c4"];
+  const uid = () => Date.now() + "" + Math.floor(Math.random() * 1e4);
+  const habitDone = (h, k) => (h.log[k] || 0) >= h.target;
+
+  function habitStreak(h) {
+    let s = 0;
+    const d = new Date();
+    if (!habitDone(h, dateKey(d))) d.setDate(d.getDate() - 1);
+    while (habitDone(h, dateKey(d))) { s++; d.setDate(d.getDate() - 1); }
+    return s;
+  }
+
+  function renderSets() {
+    const page = els.setsPage;
+    page.innerHTML = "";
+    if (!data.groups.length)
+      page.innerHTML = `<div class="sets-empty">还没有待办集，点下面新建一个吧</div>`;
+
+    data.groups.forEach(g => page.appendChild(buildGroup(g)));
+
+    const addRow = document.createElement("div");
+    addRow.className = "sets-add";
+    addRow.innerHTML = `<button type="button">＋ 新建待办集</button><button type="button" id="exportHabitsBtn" title="导出打卡表 Excel（横轴习惯，纵轴日期，完成打 ✓）">⬇ 导出打卡表</button>`;
+    addRow.querySelector("button").onclick = () => {
+      if (addRow.querySelector(".h-form")) return;
+      const form = document.createElement("div");
+      form.className = "h-form";
+      form.style.flex = "1";
+      let pendingColor = GCOLORS[data.groups.length % GCOLORS.length];
+      form.innerHTML = `<input type="text" maxlength="20" placeholder="待办集名称，如：生活习惯">
+        <button class="cp-btn" type="button" title="选择颜色" style="background:${pendingColor};width:32px;height:32px;border-radius:9px;"></button>
+        <button class="btn" type="button">确定</button>`;
+      const cpBtn = form.querySelector(".cp-btn");
+      cpBtn.onclick = () => openColorPop(cpBtn, pendingColor, c => { pendingColor = c; cpBtn.style.background = c; });
+      const commit = () => {
+        const name = form.querySelector("input").value.trim();
+        if (!name) return;
+        data.groups.push({ id: uid(), name, color: pendingColor });
+        save(); renderSets();
+      };
+      form.querySelector(".btn").onclick = commit;
+      form.querySelector("input").onkeydown = e => { if (e.key === "Enter") commit(); };
+      addRow.replaceWith(form);
+      form.querySelector("input").focus();
+    };
+    addRow.querySelector("#exportHabitsBtn").onclick = exportHabits;
+    page.appendChild(addRow);
+  }
+
+  /* 导出打卡表：横轴习惯（按待办集分组），纵轴日期，完成打 ✓ */
+  function buildHabitRows() {
+    const days = [];
+    {
+      let min = dateKey();
+      data.habits.forEach(h => Object.keys(h.log).forEach(k => { if (k < min) min = k; }));
+      let cur = parseKey(min);
+      const end = parseKey(dateKey());
+      while (cur <= end && days.length < 1000) { days.push(dateKey(cur)); cur = addDays(cur, 1); }
+    }
+    const week = ["日", "一", "二", "三", "四", "五", "六"];
+    const head1 = ["日期", "星期"], head2 = ["", ""];
+    const merges = [
+      { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } },
+      { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+    ];
+    let col = 2;
+    data.groups.forEach(g => {
+      const hs = data.habits.filter(h => h.gid === g.id);
+      if (!hs.length) return;
+      head1.push(g.name);
+      head2.push(...hs.map(h => h.name + (h.mode === "time" ? "（分钟）" : "（次）")));
+      if (hs.length > 1) merges.push({ s: { r: 0, c: col }, e: { r: 0, c: col + hs.length - 1 } });
+      col += hs.length;
+    });
+    const rows = [head1, head2];
+    days.slice().reverse().forEach(day => {
+      const line = [day, "周" + week[parseKey(day).getDay()]];
+      data.groups.forEach(g => data.habits.filter(h => h.gid === g.id).forEach(h => {
+        const c = h.log[day] || 0;
+        line.push(c >= h.target ? "✓" : (c ? String(c) : ""));
+      }));
+      rows.push(line);
+    });
+    return { rows, merges, habitCols: col - 2 };
+  }
+
+  function exportHabits() {
+    if (!data.habits.length) { alert("还没有习惯可以导出"); return; }
+    const { rows, merges, habitCols } = buildHabitRows();
+    if (typeof XLSX === "undefined") {
+      // 兜底：没有 SheetJS 就导出 CSV
+      const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `打卡表_${dateKey()}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return;
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!merges"] = merges;
+    ws["!cols"] = [{ wch: 11 }, { wch: 6 }, ...Array(habitCols).fill({ wch: 12 })];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "打卡表");
+    XLSX.writeFile(wb, `打卡表_${dateKey()}.xlsx`);
+  }
+
+  function buildGroup(g) {
+    const habits = data.habits.filter(h => h.gid === g.id);
+    const doneN = habits.filter(h => habitDone(h, dateKey())).length;
+    const box = document.createElement("section");
+    box.className = "set-group";
+    box.style.setProperty("--gc", g.color);
+
+    const head = document.createElement("div");
+    head.className = "set-head";
+    head.innerHTML = `
+      <span class="gname">${escapeHtml(g.name)}</span>
+      <span class="gstat">今日 ${doneN}/${habits.length}</span>
+      <span class="spacer"></span>
+      <button data-act="add" title="添加习惯">＋</button>
+      <button data-act="color" class="cp-btn" title="待办集颜色">🎨</button>
+      <button data-act="del" title="删除待办集">✕</button>
+      <button data-act="fold" title="收起 / 展开">${g.collapsed ? "▸" : "▾"}</button>`;
+    head.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; save(); renderSets(); };
+    head.querySelector('[data-act="del"]').onclick = () => {
+      if (!confirm(`删除待办集「${g.name}」？里面的习惯也会一起删除`)) return;
+      data.groups = data.groups.filter(x => x.id !== g.id);
+      data.habits = data.habits.filter(h => h.gid !== g.id);
+      save(); renderSets();
+    };
+    head.querySelector('[data-act="color"]').onclick = e => {
+      openColorPop(e.currentTarget, g.color, c => { g.color = c; save(); renderSets(); });
+    };
+    head.querySelector('[data-act="add"]').onclick = () => toggleHabitForm(body, g);
+
+    const body = document.createElement("div");
+    body.className = "set-body";
+    if (!g.collapsed) {
+      if (!habits.length) body.innerHTML = `<div class="quad-empty">还没有习惯，点上方 ＋ 添加</div>`;
+      habits.forEach(h => body.appendChild(buildHabit(h, g)));
+    }
+    box.append(head, body);
+    return box;
+  }
+
+  function toggleHabitForm(body, g) {
+    const old = body.querySelector(".h-form");
+    if (old) { old.remove(); return; }
+    const form = document.createElement("div");
+    form.className = "h-form";
+    form.innerHTML = `<input type="text" maxlength="30" placeholder="习惯名，如：刷牙">
+      <select title="打卡方式"><option value="count">按次数</option><option value="time">按时长</option></select>
+      <input type="number" min="1" max="600" value="1" title="每日目标">
+      <span class="h-unit">次/日</span>
+      <button class="btn" type="button">确定</button>`;
+    const sel = form.querySelector("select");
+    sel.onchange = () => {
+      form.querySelector(".h-unit").textContent = sel.value === "time" ? "分钟/日" : "次/日";
+      form.querySelector("input[type=number]").value = sel.value === "time" ? 30 : 1;
+    };
+    const commit = () => {
+      const name = form.querySelector("input[type=text]").value.trim();
+      const target = clampNum(form.querySelector("input[type=number]").value, 1, 600, 1);
+      if (!name) return;
+      data.habits.push({ id: uid(), gid: g.id, name, mode: sel.value, target, log: {} });
+      save(); renderSets();
+    };
+    form.querySelector("button").onclick = commit;
+    form.querySelector("input[type=text]").onkeydown = e => { if (e.key === "Enter") commit(); };
+    body.prepend(form);
+    form.querySelector("input[type=text]").focus();
+  }
+
+  function buildHabit(h, g) {
+    const today = dateKey();
+    const cnt = h.log[today] || 0;
+    const pct = Math.min(100, Math.round(cnt / h.target * 100));
+    const streak = habitStreak(h);
+    const unit = h.mode === "time" ? "分钟" : "次";
+    const card = document.createElement("div");
+    card.className = "habit-card";
+    card.style.setProperty("--gc", g.color);
+    card.innerHTML = `
+      <div class="h-main">
+        <div class="h-name" title="双击重命名">${escapeHtml(h.name)}</div>
+        <div class="h-sub">今日 ${cnt}/${h.target} ${unit} · 连续 ${streak} 天</div>
+      </div>
+      <div class="h-ring" style="--p:${pct}" title="今日进度 ${pct}%"><i>${pct}%</i></div>
+      <button class="h-mini" data-act="minus" title="${h.mode === "time" ? "减去一些时长" : "减一次（点错了用）"}" ${cnt ? "" : "disabled"}>－</button>
+      <button class="h-btn" data-act="plus">${h.mode === "time" ? "＋分钟" : "＋1"}</button>
+      <button class="h-del" data-act="del" title="删除">✕</button>`;
+    if (h.mode === "time") {
+      // 时长打卡：＋/－ 弹出小输入行，明确标注单位
+      const openTimeInput = sign => {
+        if (card.querySelector(".h-form")) { card.querySelector(".h-form").remove(); return; }
+        const form = document.createElement("div");
+        form.className = "h-form";
+        form.innerHTML = `<input type="number" min="1" max="600" value="15" title="本次时长（分钟）">
+          <span class="h-unit">分钟</span>
+          <button class="h-btn" data-s="1" type="button" title="加上">＋</button>
+          <button class="h-btn" data-s="-1" type="button" title="减去">－</button>`;
+        const apply = s => {
+          const v = clampNum(form.querySelector("input").value, 1, 600, 15);
+          h.log[today] = Math.max(0, (h.log[today] || 0) + s * v);
+          save(); renderSets();
+        };
+        form.querySelectorAll(".h-btn").forEach(b => { b.onclick = () => apply(parseInt(b.dataset.s, 10)); });
+        card.querySelector('[data-act="plus"]').replaceWith(form);
+        card.querySelector('[data-act="minus"]').style.display = "none";
+        form.querySelector("input").focus(); form.querySelector("input").select();
+      };
+      card.querySelector('[data-act="plus"]').onclick = () => openTimeInput(1);
+      card.querySelector('[data-act="minus"]').onclick = () => openTimeInput(-1);
+    } else {
+      card.querySelector('[data-act="plus"]').onclick = () => { h.log[today] = (h.log[today] || 0) + 1; save(); renderSets(); };
+      card.querySelector('[data-act="minus"]').onclick = () => { h.log[today] = Math.max(0, (h.log[today] || 0) - 1); save(); renderSets(); };
+    }
+    card.querySelector('[data-act="del"]').onclick = () => {
+      if (!confirm(`删除习惯「${h.name}」？历史记录一并删除`)) return;
+      data.habits = data.habits.filter(x => x.id !== h.id);
+      save(); renderSets();
+    };
+    card.querySelector(".h-name").ondblclick = () => {
+      const input = document.createElement("input");
+      input.value = h.name; input.maxLength = 30;
+      input.style.cssText = "flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);padding:4px 6px;font-size:13px;outline:none;";
+      card.querySelector(".h-name").replaceWith(input);
+      input.focus(); input.select();
+      const commit = () => { h.name = input.value.trim() || h.name; save(); renderSets(); };
+      input.onblur = commit;
+      input.onkeydown = e => { if (e.key === "Enter") input.blur(); };
+    };
+    return card;
+  }
+
+  /* ---------- 圆盘取色器 ---------- */
+  let colorTemp = "#4a7fd4", colorApply = null;
+  let wheelH = 217, wheelS = 0.62, wheelL = 55;
+
+  const hslToRgb = (h, s, l) => {
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+  };
+  const rgbToHex = (r, g2, b) => "#" + [r, g2, b].map(v => v.toString(16).padStart(2, "0")).join("");
+  function hexToHsl(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255, g2 = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g2, b), min = Math.min(r, g2, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const dd = max - min;
+      s = l > .5 ? dd / (2 - max - min) : dd / (max + min);
+      if (max === r) h = (g2 - b) / dd + (g2 < b ? 6 : 0);
+      else if (max === g2) h = (b - r) / dd + 2;
+      else h = (r - g2) / dd + 4;
+      h *= 60;
+    }
+    return { h, s: s * 100, l: l * 100 };
+  }
+
+  function drawWheel() {
+    const cv = els.wheelCv, ctx = cv.getContext("2d");
+    const R = cv.width / 2;
+    const img = ctx.createImageData(cv.width, cv.height);
+    for (let y = 0; y < cv.height; y++) {
+      for (let x = 0; x < cv.width; x++) {
+        const dx = x - R, dy = y - R;
+        const rr = Math.sqrt(dx * dx + dy * dy) / R;
+        const i = (y * cv.width + x) * 4;
+        if (rr > 1) { img.data[i + 3] = 0; continue; }
+        const hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+        const [r2, g2, b2] = hslToRgb(hue, Math.min(1, rr) * 100, wheelL);
+        img.data[i] = r2; img.data[i + 1] = g2; img.data[i + 2] = b2; img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    // 当前选点
+    const mx = R + Math.cos(wheelH * Math.PI / 180) * wheelS * R;
+    const my = R + Math.sin(wheelH * Math.PI / 180) * wheelS * R;
+    els.cpMarker.style.left = mx + "px";
+    els.cpMarker.style.top = my + "px";
+    els.cpMarker.hidden = false;
+  }
+
+  function updateTempColor() {
+    colorTemp = rgbToHex(...hslToRgb(wheelH, wheelS * 100, wheelL));
+    drawWheel();
+    els.cpPrev.style.background = colorTemp;
+    els.cpHex.textContent = colorTemp;
+  }
+
+  function wheelPick(e) {
+    const rect = els.wheelCv.getBoundingClientRect();
+    const R = rect.width / 2;
+    const dx = e.clientX - rect.left - R, dy = e.clientY - rect.top - R;
+    wheelS = Math.min(1, Math.sqrt(dx * dx + dy * dy) / R);
+    wheelH = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+    updateTempColor();
+  }
+  els.wheelCv.addEventListener("pointerdown", e => {
+    wheelPick(e);
+    const mv = ev => wheelPick(ev);
+    const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  });
+  els.lightRange.addEventListener("input", () => { wheelL = parseInt(els.lightRange.value, 10); updateTempColor(); });
+
+  function openColorPop(anchor, hex, onApply) {
+    const { h, s, l } = hexToHsl(hex);
+    wheelH = h; wheelS = s / 100; wheelL = Math.round(l) || 55;
+    els.lightRange.value = wheelL;
+    colorApply = onApply;
+    els.colorPop.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const w = 200, h2 = els.colorPop.offsetHeight || 320;
+    els.colorPop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 10)) + "px";
+    els.colorPop.style.top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - h2 - 8)) + "px";
+    updateTempColor();
+  }
+  els.cpPresets.innerHTML = GCOLORS.map(c => `<i style="background:${c}" data-c="${c}"></i>`).join("");
+  els.cpPresets.onclick = e => {
+    const i = e.target.closest("i[data-c]");
+    if (!i) return;
+    const { h, s, l } = hexToHsl(i.dataset.c);
+    wheelH = h; wheelS = s / 100; wheelL = Math.round(l) || 55;
+    els.lightRange.value = wheelL;
+    updateTempColor();
+  };
+  els.cpCancel.onclick = () => { els.colorPop.hidden = true; };
+  els.cpOk.onclick = () => {
+    els.colorPop.hidden = true;
+    if (colorApply) colorApply(colorTemp);
+    colorApply = null;
+  };
+  document.addEventListener("click", e => {
+    if (els.colorPop.hidden) return;
+    if (e.target.closest("#colorPop") || e.target.closest(".cp-btn")) return;
+    els.colorPop.hidden = true;
+  });
+
+  /* ---------- 视图切换 ---------- */
+  els.views.onclick = e => {
+    const b = e.target.closest("button[data-view]");
+    if (!b) return;
+    els.views.querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    const showTimer = b.dataset.view === "timer";
+    document.getElementById("viewTimer").hidden = !showTimer;
+    document.getElementById("viewSets").hidden = showTimer;
+    if (!showTimer) renderSets();
+  };
+
+  /* ---------- 森林筛选栏 ---------- */
+  els.forestFilter.addEventListener("click", e => {
+    const b = e.target.closest(".ff-btn[data-r]");
+    if (!b) return;
+    const r = b.dataset.r;
+    if (r === "all") applyForestRange("", "", "all");
+    else if (r === "today") applyForestRange(dateKey(), dateKey(), "today");
+    else if (r === "d7") applyForestRange(dkeyOffset(-6), dateKey(), "d7");
+    else if (r === "d30") applyForestRange(dkeyOffset(-29), dateKey(), "d30");
+    else if (r === "clear") applyForestRange("", "", "all");
+    else if (r === "apply") {
+      const f = els.ffFrom.value, t = els.ffTo.value;
+      if (!f && !t) { applyForestRange("", "", "all"); return; }
+      if (f && t && f > t) { alert("开始日期不能晚于结束日期"); return; }
+      applyForestRange(f, t, "custom");
+    }
+  });
+
+  /* ---------- 键盘快捷键 ---------- */
+  document.addEventListener("keydown", e => {
+    if (e.target.matches("input, textarea") || !els.settingsMask.hidden || !els.periodMask.hidden || !els.treeMask.hidden) return;
+    if (e.code === "Space") { e.preventDefault(); running ? pause() : start(); }
+    else if (e.key === "r" || e.key === "R") resetPhase();
+    else if (e.key === "s" || e.key === "S") els.skipBtn.onclick();
+  });
+
+  /* ---------- 启动 ---------- */
+  applyTheme();
+  remainMs = phaseMs(phase);
+  renderTimer(); renderTodos(); renderCurrentTask(); renderStats(); renderForest();
+  updatePeriodBtnTitle();
+  // 截止标签随时间自动降级（每分钟刷新一次，有待办才刷）
+  setInterval(() => { if (data.todos.some(t => t.due)) renderTodos(); }, 60000);
+  updateSaplingTitle();
+
+  /* ---------- 星历（IndexSelf）集成入口 ----------
+     番茄钟可被星历以 iframe 内嵌打开：
+     ?view=sets        直达「📌 待办集」视图
+     #forest           滚动到「🌳 我的森林」并高亮一下
+     #forest?d=D       森林只看某一天（万年历当日森林入口）
+     #forest?from=A&to=B  森林按时间范围筛选 */
+  try {
+    const hp = new URLSearchParams(location.search);
+    if (hp.get("view") === "sets") {
+      els.views.querySelector('button[data-view="sets"]')?.click();
+    }
+    if (location.hash.startsWith("#forest")) {
+      const qs = new URLSearchParams(location.hash.split("?")[1] || "");
+      const d = qs.get("d"), from = qs.get("from"), to = qs.get("to");
+      if (d) applyForestRange(d, d, "custom");
+      else if (from || to) applyForestRange(from, to, "custom");
+      setTimeout(() => {
+        const card = document.querySelector(".forest-card");
+        if (!card) return;
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.classList.add("flash");
+        setTimeout(() => card.classList.remove("flash"), 2500);
+      }, 120);
+    }
+  } catch (e) { /* 独立打开不受影响 */ }
+  </script>
+</body>
+</html>

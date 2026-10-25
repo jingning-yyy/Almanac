@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="星历 Almanac · 个人一站页：分类网址导航、万年历生日、纪念日正计时、番茄钟种树，新闻视频金融学习开发 AI 一站直达">
+  <title>星历 · 我的一站</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f7cff'/%3E%3Cstop offset='1' stop-color='%2322c3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='60' height='60' rx='15' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='20' fill='rgba(255,255,255,0.12)'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='%23fff' stroke-opacity='0.55' stroke-width='2'/%3E%3Cpath d='M44,20L27.8,27.8L20,44Z' fill='%23ffd54d'/%3E%3Cpath d='M44,20L36.2,36.2L20,44Z' fill='%23fff'/%3E%3Ccircle cx='32' cy='32' r='3.4' fill='%23173060'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css?v=73">
+</head>
+<body>
+  <div id="wallpaperLayer" class="wallpaper-layer" aria-hidden="true"></div>
+
+  <!-- ======== 顶栏 ======== -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-dot" aria-hidden="true"><svg viewBox="0 0 64 64" width="20" height="20"><circle cx="32" cy="32" r="20" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2.5"/><path d="M44,20L27.8,27.8L20,44Z" fill="#ffd54d"/><path d="M44,20L36.2,36.2L20,44Z" fill="#fff"/><circle cx="32" cy="32" r="3.6" fill="#173060"/></svg></span>
+      <b>星历</b>
+    </div>
+    <div class="clock">
+      <div class="date" id="clockDate">--</div>
+      <div class="time" id="clockTime">--:--:--</div>
+    </div>
+    <div class="header-actions" id="headerActions">
+      <button class="btn icon add-site-btn" id="addBtn" title="添加常用网址">➕</button>
+      <button class="btn icon" id="wpBtn" title="壁纸设置（动态 / 静态）">🖼️</button>
+      <button class="btn icon" id="calendarBtn" title="万年历（农历 · 节气 · 节日）">📅</button>
+      <button class="btn icon" id="timerBtn" title="纪念日（正计时 · 在一起第 N 天）">🎂</button>
+      <button class="btn icon" id="tomatoBtn" title="番茄钟（专注计时 · 四象限待办 · 种树森林）">🍅</button>
+      <button class="btn icon" id="themeBtn" title="切换亮色 / 暗色主题">🌙</button>
+      <button class="btn" id="accountBtn" title="本机账号：不同身份各自一份独立数据">👤 默认</button>
+      <button class="btn icon" id="cleanBtn" title="清除没有网址的空分组">🧹</button>
+    </div>
+  </header>
+
+  <!-- ======== 搜索区（点击问候语可隐藏/恢复下方内容） ======== -->
+  <section class="hero">
+    <h1 id="heroTitle" title="点击隐藏下方内容，再点一下恢复"><span id="greet">你好</span>，今天想看点什么？<span class="zen-arrow" aria-hidden="true">▾</span></h1>
+    <div class="hero-body">
+      <div class="hero-body-inner">
+        <p>拖动网址到左侧分类可重新归类 · 悬停卡片可删除 · 数据保存在本地浏览器</p>
+        <div class="search-box">
+          <div class="engines" id="engines"></div>
+          <div class="search-bar">
+            <span class="icon">🔍</span>
+            <input id="searchInput" type="text" autocomplete="off"
+                   placeholder="输入关键词筛选下方网址，回车用所选搜索引擎搜索">
+          </div>
+          <div class="region-filter" id="regionFilter">
+            <button data-r="all" class="active" type="button">全部</button>
+            <button data-r="cn" type="button">大陆</button>
+            <button data-r="global" type="button">🌐 外网</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="zen-tip">已隐藏全部内容 · 再点一下问候语即可恢复</p>
+  </section>
+
+  <!-- ======== 主体：左侧分类 + 右侧卡片 ======== -->
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main id="main"></main>
+  </div>
+
+  <button id="backTop" title="回到顶部">↑</button>
+
+  <footer class="footer">
+    <span id="footStats"></span> · 星历 Almanac · 双击 index.html 即可使用
+  </footer>
+
+  <!-- ======== 添加网址弹窗 ======== -->
+  <div class="modal-mask" id="modalMask" hidden>
+    <div class="modal">
+      <h3>＋ 添加常用网址</h3>
+      <label>名称 *
+        <input id="fName" type="text" maxlength="30" placeholder="例如：少数派">
+      </label>
+      <label>网址 *
+        <input id="fUrl" type="text" placeholder="https://…（可不带 https://）">
+      </label>
+      <label>分类
+        <select id="fCat"></select>
+      </label>
+      <label>地区
+        <select id="fRegion">
+          <option value="">大陆</option>
+          <option value="global">🌐 外网</option>
+        </select>
+      </label>
+      <label>简介
+        <input id="fDesc" type="text" maxlength="40" placeholder="一句话描述（可选）">
+      </label>
+      <div class="modal-actions">
+        <div class="left">
+          <button class="link-btn" id="restoreBtn" type="button">恢复已删除</button>
+          <button class="link-btn" id="exportBtn2" type="button">导出备份</button>
+          <button class="link-btn" id="importBtn2" type="button">导入备份</button>
+        </div>
+        <div class="right">
+          <button class="btn" id="fCancel">取消</button>
+          <button class="btn primary" id="fSave">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- ======== 万年历弹窗 ======== -->
+  <div class="modal-mask" id="calMask" hidden>
+    <div class="modal cal-modal">
+      <div class="cal-head">
+        <button class="cal-nav" id="calPrev" title="上一月">‹</button>
+        <div class="cal-title">
+          <b id="calYM">--</b>
+          <span id="calGz">--</span>
+        </div>
+        <button class="cal-nav" id="calNext" title="下一月">›</button>
+      </div>
+      <div class="cal-week">
+        <span class="we">日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="we">六</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-detail" id="calDetail"></div>
+
+      <!-- ======== 生日与记录 ======== -->
+      <div class="rec-toolbar">
+        <button class="btn" id="recToggle">🎂 生日与记录</button>
+        <button class="btn icon" id="recAddToggle" title="添加生日 / 记录">➕</button>
+        <button class="btn icon" id="recImportBtn" title="导入生日管家（Excel / CSV）">📥</button>
+        <button class="btn icon" id="recExportBtn" title="导出生日与记录（JSON 备份）">📤</button>
+        <button class="btn icon" id="packBtn" title="按天勾选导出/导入：图片附件 · 日记 · 心情">📦</button>
+        <input type="file" id="recImportFile" accept=".csv,.txt,.xlsx,.xls" hidden>
+      </div>
+      <div id="recPanel" hidden>
+        <div id="recForm" class="rec-form" hidden>
+          <div class="rec-form-row">
+            <input id="recName" type="text" maxlength="20" placeholder="名称，如：张三 / 结婚纪念日">
+          </div>
+          <div class="rec-form-row three">
+            <select id="recKind" title="类别">
+              <option value="birthday">🎂 生日</option>
+              <option value="anniversary">💝 纪念日</option>
+              <option value="note">📌 提醒</option>
+            </select>
+            <select id="recMode" title="日期方式">
+              <option value="solar">公历 · 每年</option>
+              <option value="lunar">农历 · 每年</option>
+              <option value="once">仅某一天</option>
+            </select>
+          </div>
+          <div class="rec-form-row three" id="recSolarWrap">
+            <select id="recSM" title="公历月份"></select>
+            <select id="recSD" title="公历日期"></select>
+          </div>
+          <div class="rec-form-row three" id="recLunarWrap" hidden>
+            <select id="recLM"></select>
+            <select id="recLD"></select>
+          </div>
+          <div class="rec-form-row" id="recOnceWrap" hidden>
+            <input id="recOnceDate" type="date">
+          </div>
+          <div class="rec-form-row" id="recYearWrap">
+            <input id="recYear" type="number" min="1900" max="2100" placeholder="出生年份（选填，用于显示年龄）">
+          </div>
+          <div class="rec-form-row">
+            <input id="recNote" type="text" maxlength="30" placeholder="备注（可选）">
+          </div>
+          <div class="rec-form-row">
+            <button class="btn primary" id="recSave">保存记录</button>
+          </div>
+        </div>
+        <div id="recList" class="rec-list"></div>
+      </div>
+
+      <div class="modal-actions">
+        <div class="left">
+          <button class="link-btn" id="calToday" type="button">回到今天</button>
+          <span class="cal-tip">左右方向键翻月 · Esc 关闭</span>
+        </div>
+        <div class="right">
+          <button class="btn" id="calClose">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 纪念日（正计时）弹窗 ======== -->
+  <div class="modal-mask" id="timerMask" hidden>
+    <div class="modal timer-modal">
+      <h3>🎂 纪念日</h3>
+      <p class="timer-tip">记下重要的日子，实时累计「第 N 天」，秒级跳动 · 可按分组筛选 · 右下角可拖拽调大小</p>
+      <div class="rec-toolbar">
+        <button class="btn" id="timerAddToggle">＋ 添加纪念日</button>
+        <button class="btn" id="timerCompactBtn" title="切换 大图 / 小图 卡片模式">🔲 小图模式</button>
+        <button class="btn" id="timerOrderBtn" title="切换 升序（早→晚）/ 降序（晚→早）排列">⇅ 时间正序</button>
+        <button class="btn" id="timerRemindBtn" title="当天纪念日/节日到点时弹通知提醒（电脑端，页面打开时生效）">🔕 提醒关</button>
+        <button class="btn" id="timerExportBtn" title="导出纪念日为 JSON 备份">导出</button>
+        <button class="btn" id="timerImportBtn" title="导入 JSON 备份">导入</button>
+        <input type="file" id="timerImportFile" accept=".json,application/json" hidden>
+      </div>
+      <div id="timerForm" class="rec-form" hidden>
+        <div class="rec-form-row" id="timerEmojiRow"></div>
+        <div class="rec-form-row">
+          <input id="timerCat" list="timerCatList" maxlength="10" title="分组（可自定义）" placeholder="分组，如：恋爱">
+          <datalist id="timerCatList"></datalist>
+          <input id="timerName" type="text" maxlength="20" placeholder="名称，如：在一起 / 第一次旅行">
+        </div>
+        <div class="rec-form-row">
+          <select id="timerCalType" title="历法（生日可按阴历录入，自动换算）">
+            <option value="solar">阳历</option>
+            <option value="lunar">阴历</option>
+          </select>
+          <input id="timerDate" type="date" title="开始日期（阳历）">
+          <input id="timerTime" type="time" title="开始时刻（可选）">
+        </div>
+        <div class="rec-form-row" id="timerLunarWrap" hidden>
+          <input id="timerLY" type="number" min="1900" max="2100" placeholder="农历年份，如 1998" title="农历年份">
+          <select id="timerLM" title="农历月"></select>
+          <select id="timerLD" title="农历日"></select>
+        </div>
+        <div class="rec-form-row">
+          <input id="timerNote" type="text" maxlength="30" placeholder="备注（可选）">
+        </div>
+        <div class="rec-form-row">
+          <button class="btn primary" id="timerSave">保存纪念日</button>
+        </div>
+      </div>
+      <div id="timerCats" class="timer-cats"></div>
+      <div id="timerList" class="timer-list"></div>
+      <div class="modal-actions">
+        <div class="left">
+          <label class="timer-style">显示方式
+            <select id="timerStyle">
+              <option value="inclusive">第 N 天（含当天）</option>
+              <option value="elapsed">已过 N 天</option>
+            </select>
+          </label>
+        </div>
+        <div class="right">
+          <button class="btn" id="timerClose">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 番茄钟（内嵌 tomato/ 子应用）弹窗 ======== -->
+  <div class="modal-mask" id="tomatoMask" hidden>
+    <div class="modal tomato-modal">
+      <div class="tomato-head">
+        <b>🍅 番茄钟</b>
+        <span class="tomato-tip">专注计时 · 四象限待办 · 专注种树 · 待办集打卡</span>
+        <button class="btn" id="tomatoClose">关闭</button>
+      </div>
+      <iframe id="tomatoFrame" title="番茄钟" src="about:blank"></iframe>
+    </div>
+  </div>
+
+  <input type="file" id="importFile" accept=".json,application/json" hidden>
+
+  <!-- ======== 本机账号弹窗 ======== -->
+  <div class="modal-mask" id="accountMask" hidden>
+    <div class="modal" style="max-width:380px">
+      <h3>👤 本机账号</h3>
+      <p class="account-tip">当前身份：<b id="accCur">默认</b> · 不同身份各自拥有一份独立数据（纪念日、生日、心情、图片、网址自定义）；主题与壁纸为本机共用。</p>
+      <p class="account-tip" id="accList"></p>
+      <div id="accManage" class="account-manage"></div>
+      <label>用户名
+        <input id="accUser" maxlength="20" placeholder="已有账号，或输入新用户名创建">
+      </label>
+      <label>密码
+        <input id="accPass" type="password" placeholder="新账号请设置密码；已有账号输入原密码">
+      </label>
+      <p class="account-tip">留空用户名点「进入」= 返回默认身份 · 密码仅用于本机数据分区（非加密）</p>
+      <div class="modal-actions">
+        <div class="left"><button class="link-btn" id="accLogout" hidden>退出到默认身份</button></div>
+        <div class="right"><button class="btn" id="accCancel">取消</button><button class="btn primary" id="accLogin">进 入</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 壁纸设置弹窗 ======== -->
+  <div class="modal-mask" id="wpMask" hidden>
+    <div class="modal wp-modal">
+      <h3>🖼️ 壁纸设置</h3>
+      <div class="rec-form">
+        <div class="rec-form-row">
+          <select id="wpSource" title="壁纸来源">
+            <option value="none">无（默认背景）</option>
+            <option value="grad">动态渐变壁纸</option>
+            <option value="imgfile">图片文件（本机）</option>
+            <option value="vidfile">视频文件（本机）</option>
+            <option value="imgurl">图片 URL</option>
+            <option value="vidurl">视频 URL</option>
+          </select>
+        </div>
+        <div class="rec-form-row" id="wpFileRow" hidden>
+          <button class="btn" id="wpPickImg" type="button">选择图片</button>
+          <button class="btn" id="wpPickVid" type="button">选择视频</button>
+          <span class="wp-filename" id="wpFileName"></span>
+          <input type="file" id="wpImgFile" accept="image/*" hidden>
+          <input type="file" id="wpVidFile" accept="video/mp4,video/webm" hidden>
+        </div>
+        <div class="rec-form-row" id="wpURLRow" hidden>
+          <input id="wpURL" type="text" placeholder="https://…（图片或视频地址）">
+        </div>
+        <div class="rec-form-row wp-grad-row" id="wpGradRow" hidden>
+          <span class="wp-dim-label">渐变色</span>
+          <button type="button" class="wp-swatch" data-g="1" title="星夜蓝（默认）"></button>
+          <button type="button" class="wp-swatch g2" data-g="2" title="青碧"></button>
+          <button type="button" class="wp-swatch g3" data-g="3" title="紫霞"></button>
+          <button type="button" class="wp-swatch g4" data-g="4" title="落日橙霞"></button>
+          <button type="button" class="wp-swatch g5" data-g="5" title="樱花粉"></button>
+          <button type="button" class="wp-swatch g6" data-g="6" title="青森"></button>
+          <button type="button" class="wp-swatch g7" data-g="7" title="深紫"></button>
+          <button type="button" class="wp-swatch g8" data-g="8" title="暖阳"></button>
+          <button type="button" class="wp-swatch g9" data-g="9" title="碧海"></button>
+          <button type="button" class="wp-swatch g10" data-g="10" title="玫瑰"></button>
+          <button type="button" class="wp-swatch g11" data-g="11" title="极光"></button>
+          <button type="button" class="wp-swatch g12" data-g="12" title="薰衣草"></button>
+          <span class="wp-cs" title="自定义三个渐变色（改动即切换为自定义）">
+            <input type="color" id="wpC1" title="颜色一">
+            <input type="color" id="wpC2" title="颜色二">
+            <input type="color" id="wpC3" title="颜色三">
+          </span>
+        </div>
+        <div class="rec-form-row wp-dim-row">
+          <span class="wp-dim-label">遮罩浓度</span>
+          <input id="wpDim" type="range" min="0" max="80" value="35">
+          <span class="wp-dim-val" id="wpDimVal">35%</span>
+        </div>
+        <div class="rec-form-row">
+          <button class="btn primary" id="wpApply" type="button">应用壁纸</button>
+          <button class="btn" id="wpClear" type="button">清除壁纸</button>
+          <span class="wp-apply-ok" id="wpApplyOk"></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <div class="right">
+          <button class="btn" id="wpClose">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/account.js?v=73"></script>
+  <script src="js/data-sync.js?v=73"></script>
+  <script src="js/data-itab.js?v=73"></script>
+  <script src="js/data-bookmarks.js?v=73"></script>
+  <script src="js/data.js?v=73"></script>
+  <script src="js/app.js?v=73"></script>
+  <script src="js/solarlunar.js?v=73"></script>
+  <script src="js/records.js?v=73"></script>
+  <script src="js/records-ui.js?v=73"></script>
+  <script src="js/timers.js?v=73"></script>
+  <script src="js/tomato.js?v=73"></script>
+  <script src="js/version-check.js?v=73"></script>
+  <script src="js/wallpaper.js?v=73"></script>
+  <script src="js/header-order.js?v=73"></script>
+  <script src="js/diary.js?v=73"></script>
+  <script src="js/calendar.js?v=73"></script>
+</body>
+</html>
