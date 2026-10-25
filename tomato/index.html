@@ -6,7 +6,6 @@
   <meta name="description" content="番茄钟工作法：专注计时 + 待办清单 + 每日打卡统计，数据保存在本地浏览器">
   <title>番茄钟 · 专注 + 待办</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>">
-  <script src="xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #f6f4f0;
@@ -14,6 +13,7 @@
       --text: #2b2723;
       --muted: #8a8378;
       --line: #e8e2d8;
+      --border: var(--line);   /* 森林筛选等处引用；暗色块的 --line 重定义会同步生效 */
       --accent: #d94f3d;
       --accent-soft: #fbe9e5;
       --ok: #3d9a6c;
@@ -2004,20 +2004,37 @@
     return { rows, merges, habitCols: col - 2 };
   }
 
-  function exportHabits() {
-    if (!data.habits.length) { alert("还没有习惯可以导出"); return; }
-    const { rows, merges, habitCols } = buildHabitRows();
-    if (typeof XLSX === "undefined") {
-      // 兜底：没有 SheetJS 就导出 CSV
-      const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `打卡表_${dateKey()}.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      return;
+    /* SheetJS 按需加载：与主页共用 ../js/vendor/ 同一份（此前 tomato/ 自带完整
+       882KB 副本且每次打开都无条件加载）；加载失败自动走 CSV 兜底 */
+    let xlsxState = null;
+    function ensureXLSX() {
+      if (typeof XLSX !== "undefined") return Promise.resolve(true);
+      if (xlsxState !== null) return xlsxState;
+      xlsxState = new Promise((resolve) => {
+        const s = document.createElement("script");
+        s.src = "../js/vendor/xlsx.full.min.js";
+        s.onload = () => resolve(true);
+        s.onerror = () => { xlsxState = null; resolve(false); };
+        document.head.appendChild(s);
+      });
+      return xlsxState;
     }
+
+  async function exportHabits() {
+      if (!data.habits.length) { alert("还没有习惯可以导出"); return; }
+      const { rows, merges, habitCols } = buildHabitRows();
+      const xlsxOk = await ensureXLSX();
+      if (!xlsxOk || typeof XLSX === "undefined") {
+        // 兜底：SheetJS 加载失败就导出 CSV
+        const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `打卡表_${dateKey()}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return;
+      }
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!merges"] = merges;
     ws["!cols"] = [{ wch: 11 }, { wch: 6 }, ...Array(habitCols).fill({ wch: 12 })];

@@ -21,6 +21,7 @@
   const MIG = DIR + "migrated";
   const KEYS = [
     "nav_timers", "nav_timer_style", "nav_timer_cat", "nav_timer_compact", "nav_timer_order",
+    "nav_timer_size", "nav_timer_cat_order", "nav_remind", "nav_remind_done",
     "nav_records", "nav_auto_done", "nav_mood", "nav_diary", "nav_holiday_off",
     "nav_custom_sites", "nav_hidden_sites", "nav_site_moves", "nav_cat_renames",
     "nav_removed_cats", "nav_cat_order", "nav_site_order"

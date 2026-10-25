@@ -147,8 +147,7 @@ IndexSelf/
 │   ├── wallpaper.js          # 壁纸设置（动态渐变 / 本机图片视频 / URL）
 │   └── vendor/xlsx.full.min.js  # Excel 解析（导入 .xlsx 时懒加载）
 ├── tomato/                   # 番茄钟子应用（内嵌弹窗 + 可独立双击打开）
-│   ├── index.html            # 番茄钟单文件应用（#forest 锚点直达我的森林）
-│   └── xlsx.full.min.js      # 打卡表导出用 SheetJS
+│   └── index.html            # 番茄钟单文件应用（#forest 锚点直达我的森林；打卡表导出按需共用 js/vendor/xlsx）
 └── README.md
 ```
 
@@ -209,10 +208,11 @@ data.js（内置精选 254 站，18 分类）
 | nav_timer_cat | 纪念日当前筛选的分组 |
 | nav_timer_compact | 纪念日小图模式（"1"=小图） |
 | nav_holiday_off | 纪念日中被手动删除的自动节日名（不再生成） |
-| nav_timer_cat_order | 纪念日分组页签拖动排序 |
+| nav_timer_size | 纪念日弹窗尺寸（随账号走） |
+| nav_timer_cat_order | 纪念日分组页签拖动排序（随账号走） |
 | nav_mood | 万年历当日心情（日期 → 表情） |
-| nav_remind / nav_remind_done | 纪念日提醒开关 / 当天已提醒标记 |
-| data/accounts / data/current | 本机账号表（用户名→密码哈希）/ 当前身份 |
+| nav_remind / nav_remind_done | 纪念日提醒开关 / 当天已提醒标记（随账号走） |
+| data/accounts / data/current / data/deleted | 本机账号表（用户名→密码哈希）/ 当前身份 / 已删账号墓碑 |
 | data/<用户名>/* | 该用户的数据文件夹（每项数据一个键；删除文件夹=数据清零，重建与默认一致） |
 | data/default/* | 默认身份基线（仅内置推荐：不含 iTab/书签导入与生日管家记录） |
 | data/migrated | 升级迁移标记（现有数据已放入「我的数据」名下，预设密码） |
