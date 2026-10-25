@@ -8,16 +8,20 @@
  *   万年历「🌳 种树 · 森林」 → 打开并直达「我的森林」（#forest）
  * ============================================================ */
 (() => {
-  /* 版本号统一取 index.html 头部定义的 window.APP_VERSION（与主站同号），用于刷新 iframe 缓存 */
-  const SRC = `tomato/index.html?v=${window.APP_VERSION}`;
+  /* 版本号统一取 index.html 头部定义的 window.APP_VERSION（与主站同号），用于刷新 iframe 缓存；
+     theme 跟随主页当前主题（light/eye/dark），番茄钟完全联动 */
+  const srcOf = (hash) =>
+    `tomato/index.html?v=${window.APP_VERSION}` +
+    `&theme=${document.documentElement.getAttribute("data-theme") || "light"}` +
+    (hash ? "#" + hash : "");
 
   let loaded = false;   // iframe 是否已加载过内容（about:blank 时为 false）
 
   function openTomato(hash) {
     const frame = document.getElementById("tomatoFrame");
     /* 每次都重设 src：一是带上锚点参数，二是番茄钟基于时间戳计时，
-       重新加载即可恢复状态，不会有"后台暂停"问题 */
-    frame.src = SRC + (hash ? "#" + hash : "");
+       重新加载即可从 RUN_KEY 恢复运行状态，不会有"后台暂停"问题 */
+    frame.src = srcOf(hash);
     loaded = true;
     document.getElementById("tomatoMask").hidden = false;
   }

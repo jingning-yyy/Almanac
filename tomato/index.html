@@ -26,11 +26,25 @@
       --text: #efe9e1;
       --muted: #9a9184;
       --line: #38332d;
+      --border: var(--line);
       --accent: #e86850;
       --accent-soft: #3a2723;
       --ok: #5cba8a;
       --ok-soft: #21362b;
       --shadow: 0 6px 24px rgba(0, 0, 0, .35);
+    }
+    /* 护眼：与主页 🌿 主题同源配色（星历内嵌 ?theme=eye 时生效） */
+    html[data-theme="eye"] {
+      --bg: #cfe6d0;
+      --card: #e6f2e7;
+      --text: #2b4236;
+      --muted: #5d7a68;
+      --line: #b7d6bc;
+      --accent: #3a8f5f;
+      --accent-soft: #d8eedd;
+      --ok: #3a8f5f;
+      --ok-soft: #d8eedd;
+      --shadow: 0 6px 24px rgba(43, 66, 54, .14);
     }
     /* 阶段配色：专注红 / 短休绿 / 长休蓝 */
     html[data-phase="focus"]  { --phase: var(--accent); --phase-soft: var(--accent-soft); }
@@ -787,6 +801,7 @@
   ================================================================ */
 
   const LS_KEY = "pomodoro.v1";
+  const RUN_KEY = "pomodoro.run.v1";   // 运行态（关弹窗/刷新后按时间戳续算）
   const PHASE_NAMES = { focus: "专注", short: "短休息", long: "长休息" };
   const PHASE_HINT  = { focus: "准备专注", short: "喝口水，站起来走走", long: "好好休息一下" };
   // 四象限（横轴：紧急程度，纵轴：重要程度），象限决定种出的树种
@@ -965,7 +980,7 @@
         data.settings[phase] = v;   // 写回设置，下次也用这个时长
         save();
         remainMs = v * 60000;
-        renderTimer();
+        renderTimer(); saveRun();
       }
     };
     input.onblur = () => finish(true);
@@ -1477,20 +1492,51 @@
   }
   function stopTick() { if (tickTimer) { clearInterval(tickTimer); tickTimer = null; } }
 
+  /* ---------- 运行态持久化：关弹窗 / 刷新 / 重启后按时间戳续算 ----------
+     状态变化即写入 RUN_KEY；弹窗被星历置回 about:blank 时触发 pagehide 保存。
+     时间是绝对时间戳，关着的期间照常流逝，重开即恢复（注释承诺从此成立）。 */
+  function saveRun() {
+    try { localStorage.setItem(RUN_KEY, JSON.stringify({ phase, running, endAt, startAt, remainMs })); } catch (e) { /* 忽略 */ }
+  }
+  function restoreRun() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(RUN_KEY) || "null"); } catch (e) { /* 忽略 */ }
+    if (!s || !["focus", "short", "long", "up"].includes(s.phase)) return;
+    phase = s.phase;
+    document.querySelectorAll("#modes button").forEach(b =>
+      b.classList.toggle("active", b.dataset.phase === phase));
+    if (phase === "up") {
+      if (s.running && s.startAt) { startAt = s.startAt; running = true; startTick(); }
+      return;
+    }
+    remainMs = Number(s.remainMs) || 0;
+    if (s.running && s.endAt) {
+      if (Date.now() < s.endAt) {
+        endAt = s.endAt; running = true; startTick();
+      } else {
+        completePhase();   // 关着的时候已经走完：补结算（种树/统计/进下一阶段）
+      }
+    } else if (remainMs <= 0 || remainMs >= phaseMs(phase)) {
+      remainMs = phaseMs(phase);
+    }
+    renderTimer();
+  }
+  window.addEventListener("pagehide", saveRun);
+
   function start() {
     if (running) return;
-    if (phase === "up") { startAt = Date.now(); running = true; startTick(); renderTimer(); return; }
+    if (phase === "up") { startAt = Date.now(); running = true; startTick(); renderTimer(); saveRun(); return; }
     const total = phaseMs(phase);
     if (remainMs <= 0 || remainMs >= total) remainMs = total;
     endAt = Date.now() + remainMs;
     running = true;
-    startTick(); renderTimer();
+    startTick(); renderTimer(); saveRun();
   }
   function pause() {
     if (!running || phase === "up") return;
     remainMs = Math.max(0, endAt - Date.now());
     running = false;
-    stopTick(); renderTimer();
+    stopTick(); renderTimer(); saveRun();
   }
   function resetPhase() {
     // 专注计时中重置：小树枯萎（没开跑的重置不算）
@@ -1503,7 +1549,7 @@
     running = false; stopTick();
     remainMs = phaseMs(phase);
     document.body.classList.remove("flash");
-    renderTimer();
+    renderTimer(); saveRun();
   }
   function switchPhase(p, autostart) {
     phase = p;
@@ -1512,7 +1558,7 @@
     document.body.classList.remove("flash");
     document.querySelectorAll("#modes button").forEach(b =>
       b.classList.toggle("active", b.dataset.phase === p));
-    renderTimer();
+    renderTimer(); saveRun();
     if (autostart) start();
   }
 
@@ -1569,7 +1615,7 @@
 
   function finishCountUp() {
     const mins = Math.floor((Date.now() - startAt) / 60000);
-    running = false; stopTick();
+    running = false; stopTick(); saveRun();
     if (mins < 1) {
       flashTitle("⏱ 不足 1 分钟，这次就不记录啦");
       switchPhase("up", false);
@@ -1683,13 +1729,20 @@
   };
 
   els.themeBtn.onclick = () => {
-    data.settings.theme = data.settings.theme === "dark" ? "light" : "dark";
+    const seq = ["light", "eye", "dark"];
+    const cur = seq.includes(data.settings.theme) ? data.settings.theme : "light";
+    data.settings.theme = seq[(seq.indexOf(cur) + 1) % seq.length];
+    document.documentElement.dataset.theme = data.settings.theme;   // 内嵌时立即覆盖本次会话，下次打开仍跟随主页
     save(); applyTheme();
   };
   function applyTheme() {
-    const dark = data.settings.theme === "dark";
-    document.documentElement.dataset.theme = data.settings.theme;
-    els.themeBtn.textContent = dark ? "☀️" : "🌙";
+    let t = document.documentElement.dataset.theme;   // 星历内嵌时已被 ?theme= 预置
+    if (!["light", "eye", "dark"].includes(t)) {
+      t = ["light", "eye", "dark"].includes(data.settings.theme) ? data.settings.theme : "light";
+    }
+    document.documentElement.dataset.theme = t;
+    els.themeBtn.textContent = t === "dark" ? "☀️" : (t === "eye" ? "🌿" : "🌙");
+    els.themeBtn.title = "切换亮色 / 护眼 / 暗色主题";
   }
 
   /* ---------- 设置 ---------- */
@@ -1752,6 +1805,7 @@
   els.wipeBtn.onclick = () => {
     if (!confirm("确定清空所有数据吗？（待办、统计、设置都会删除）")) return;
     data = defaultData();
+    localStorage.removeItem(RUN_KEY);   // 运行态一并清掉
     save(); resetPhase(); renderTodos(); renderCurrentTask(); renderStats(); renderForest(); applyTheme();
     els.settingsMask.hidden = true;
   };
@@ -2319,8 +2373,11 @@
   });
 
   /* ---------- 启动 ---------- */
+  /* 星历内嵌时跟随主页主题（?theme=light|eye|dark，见 js/tomato.js）；独立打开用自己保存的 */
+  const qTheme = new URLSearchParams(location.search).get("theme");
+  if (["light", "eye", "dark"].includes(qTheme)) document.documentElement.dataset.theme = qTheme;
   applyTheme();
-  remainMs = phaseMs(phase);
+  restoreRun();
   renderTimer(); renderTodos(); renderCurrentTask(); renderStats(); renderForest();
   updatePeriodBtnTitle();
   // 截止标签随时间自动降级（每分钟刷新一次，有待办才刷）
