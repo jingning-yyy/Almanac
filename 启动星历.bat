@@ -7,9 +7,15 @@ set "CURL=%SystemRoot%\System32\curl.exe"
 set "PYW="
 echo [%date% %time%] launcher start > "%LOG%"
 
-rem --- 1) server already up? open page directly (no python needed) ---
-"%CURL%" -s -o nul -m 2 http://127.0.0.1:8630/api/ping
+rem --- 1) server already up AND serving pages? open page directly (no python needed) ---
+rem     健康检查用页面本身而非 /api/ping：僵尸服务器只答 ping 不答页面，
+rem     若只 ping 会永远不重启（双击"打不开"的另一半个原因）
+"%CURL%" -s -f -o nul -m 2 http://127.0.0.1:8630/
 if not errorlevel 1 goto open
+
+rem --- 1b) unhealthy: a zombie may hold the port, kill it before starting fresh ---
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='pythonw.exe' or Name='python.exe'\" | Where-Object { $_.CommandLine -match 'server\.py' -and ($_.CommandLine -match 'Almanac' -or $_.CommandLine -match '8630') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>nul
+timeout /t 1 /nobreak >nul
 
 rem --- 2) locate pythonw: PATH first, then known absolute fallbacks ---
 where pythonw >nul 2>nul && set "PYW=pythonw"
@@ -26,10 +32,10 @@ if not defined PYW (
 echo [%time%] starting server >> "%LOG%"
 start "" /min "%PYW%" "%SRV%" 8630
 
-rem --- 3) wait up to 15s for readiness ---
+rem --- 3) wait up to 15s for readiness (page itself, not just ping) ---
 set /a tries=0
 :wait
-"%CURL%" -s -o nul -m 1 http://127.0.0.1:8630/api/ping
+"%CURL%" -s -f -o nul -m 2 http://127.0.0.1:8630/
 if not errorlevel 1 goto open
 set /a tries+=1
 if %tries% lss 15 (

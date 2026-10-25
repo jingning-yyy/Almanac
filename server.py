@@ -15,6 +15,14 @@ import re
 import socketserver
 import sys
 
+# pythonw（无窗口）启动时 stdout/stderr 为 None：任何日志写入都会抛异常，
+# 表现为 /api/ping 正常（被静默）而静态文件/同步请求全部空响应——
+# 双击 bat"打不开"的根因。统一切到 devnull。
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data")
 SAFE = re.compile(r"^\w+$")   # 用户名/数据键白名单（中英文、数字、下划线）
