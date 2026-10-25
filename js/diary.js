@@ -303,108 +303,9 @@ window.Diary = (() => {
     await openPack();
   }
 
-  /* ---------- 当天内容导出：五类复选（附件/日记/心情/森林/生日与纪念日） ---------- */
-  const DAY_PARTS = [
-    { k: "attach", icon: "📷", label: "图片附件" },
-    { k: "diary", icon: "📝", label: "日记" },
-    { k: "mood", icon: "🌤️", label: "心情" },
-    { k: "forest", icon: "🌳", label: "森林（当天种的树）" },
-    { k: "recs", icon: "🎂", label: "生日与纪念日" }
-  ];
-  async function dayContent(dateKey) {
-    const parts = {};
-    const [y, m, d] = dateKey.split("-").map(Number);
-    try {
-      const urls = await AttachDB.get((window.NAV_USER_PREFIX || "") + dateKey);
-      if (urls && urls.length) parts.attach = urls;
-    } catch { /* 附件库不可用 */ }
-    const dtxt = text(dateKey);
-    if (dtxt.trim()) parts.diary = dtxt;
-    const mo = moodMap()[dateKey];
-    if (mo) parts.mood = mo;
-    try {
-      const pd = JSON.parse(localStorage.getItem("pomodoro.v1") || "{}");
-      const trees = (pd.forest || []).filter((t) => t && t.d === dateKey);
-      if (trees.length) parts.forest = trees.map((t) => ({
-        time: t.ts || null, task: t.t || "", quadrant: t.q, species: t.sp || 0
-      }));
-    } catch { /* 无番茄钟数据 */ }
-    try {
-      if (typeof solarLunar !== "undefined" && typeof Records !== "undefined"
-          && typeof Timers !== "undefined") {
-        const sl = solarLunar.solar2lunar(y, m, d);
-        const list = [];
-        for (const r of Records.getFor(y, m, d, sl)) {
-          list.push({ kind: "记录", name: r.name, 类型: r.kind, 历法: r.cal, 月: r.m, 日: r.d, 年: r.y || null });
-        }
-        for (const t of Timers.getFor(y, m, d)) {
-          list.push({ kind: "纪念日", name: t.name, 分组: t.cat, 年: t.y, 月: t.m, 日: t.d });
-        }
-        if (list.length) parts.recs = list;
-      }
-    } catch { /* 记录模块不可用 */ }
-    return parts;
-  }
-  function dayPartDesc(k, v) {
-    if (k === "attach") return Array.isArray(v) ? `${v.length} 张图片` : "";
-    if (k === "diary") return String(v).replace(/\s+/g, " ").slice(0, 18);
-    if (k === "mood") return String(v);
-    if (k === "forest") return Array.isArray(v) ? `${v.length} 棵树` : "";
-    if (k === "recs") return Array.isArray(v) ? v.map((x) => x.name).join("、").slice(0, 20) : "";
-    return "";
-  }
-  let dpMask = null;
-  async function openDayPack(dateKey) {
-    const parts = await dayContent(dateKey);
-    if (dpMask) dpMask.remove();
-    dpMask = document.createElement("div");
-    dpMask.className = "modal-mask";
-    dpMask.id = "dayPackMask";
-    dpMask.hidden = true;
-    dpMask.innerHTML =
-      `<div class="modal daypack-modal">` +
-      `<div class="diary-head"><b>🗓️ 导出当天内容</b>` +
-      `<button type="button" class="lb-x" title="关闭">✕</button></div>` +
-      `<div class="daypack-date">${esc(fmtDate(dateKey))} · 勾选要放进导出文件的部分：</div>` +
-      `<div class="daypack-list">` +
-      DAY_PARTS.map((p) => {
-        const has = parts[p.k] !== undefined;
-        const desc = has ? dayPartDesc(p.k, parts[p.k]) : "";
-        return `<label class="daypack-row${has ? "" : " empty"}">` +
-          `<input type="checkbox" data-k="${p.k}" ${has ? "checked" : "disabled"}>` +
-          `<span class="daypack-name">${p.icon} ${p.label}</span>` +
-          `<span class="daypack-desc">${has ? esc(desc || "有内容") : "当天没有"}</span></label>`;
-      }).join("") +
-      `</div>` +
-      `<div class="pack-bar"><button type="button" class="btn sm" id="dpAll">全选</button>` +
-      `<button type="button" class="btn sm primary" id="dpGo">⬇ 导出所选</button></div>` +
-      `</div>`;
-    document.body.appendChild(dpMask);
-    dpMask.addEventListener("click", (e) => { if (e.target === dpMask) dpMask.hidden = true; });
-    dpMask.querySelector(".lb-x").onclick = () => { dpMask.hidden = true; };
-    dpMask.querySelector("#dpAll").onclick = () =>
-      dpMask.querySelectorAll("input:not(:disabled)").forEach((c) => { c.checked = true; });
-    dpMask.querySelector("#dpGo").onclick = () => {
-      const sel = {};
-      dpMask.querySelectorAll("input:checked").forEach((c) => {
-        if (parts[c.dataset.k] !== undefined) sel[c.dataset.k] = parts[c.dataset.k];
-      });
-      if (!Object.keys(sel).length) { alert("这天没有可导出的内容"); return; }
-      const blob = new Blob([JSON.stringify({
-        app: "xingli-day", ver: 1, date: dateKey,
-        exported_at: new Date().toISOString(), parts: sel
-      }, null, 2)], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `星历_当天_${dateKey}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      dpMask.hidden = true;
-    };
-    dpMask.hidden = false;
-  }
+  /* （当天内容导出功能随 v67 移除入口按钮，死链已于清理批次删除） */
 
-  return { map, text, open, openPack, openDayPack, collectDays, applyPack };
+  return { map, text, open, openPack, collectDays, applyPack };
 })();
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -412,18 +313,4 @@ document.addEventListener("DOMContentLoaded", () => {
   try { localStorage.removeItem("nav_modal_sizes"); } catch { /* 忽略 */ }
   const btn = document.getElementById("packBtn");
   if (btn) btn.onclick = () => window.Diary.openPack();
-  /* 当天内容导出：用万年历选中的日期，没选则今天 */
-  const dbtn = document.getElementById("dayPackBtn");
-  if (dbtn) dbtn.onclick = () => {
-    let key = null;
-    try {
-      const s = (typeof CAL !== "undefined" && CAL) ? CAL.selected : null;
-      if (s) key = `${s.y}-${String(s.m).padStart(2, "0")}-${String(s.d).padStart(2, "0")}`;
-    } catch { /* 忽略 */ }
-    if (!key) {
-      const t = new Date();
-      key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-    }
-    window.Diary.openDayPack(key);
-  };
 });

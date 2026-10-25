@@ -71,7 +71,6 @@
         layer.classList.add("wp-gradient", `wp-grad-${settings.grad || 1}`);
       }
     } else if (settings.mode === "imgfile" || settings.mode === "vidfile") {
-      if (objectUrl) { URL.revokeObjectURL(objectUrl); }
       idbGet().then((blob) => {
         if (!blob) return;
         objectUrl = URL.createObjectURL(blob);

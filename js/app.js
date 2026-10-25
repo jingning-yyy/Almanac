@@ -23,8 +23,7 @@ const LS = {
   order: "nav_cat_order",         // 分类显示顺序
   siteOrder: "nav_site_order",    // 网址显示顺序
   sidebarMini: "nav_sidebar_mini",// 侧栏缩略图模式
-  zen: "nav_zen",                 // 专注模式（点击问候语隐藏下方内容）
-  autoDone: "nav_auto_done"       // 自动导入已处理的生日条目键
+  zen: "nav_zen"                  // 专注模式（点击问候语隐藏下方内容）
 };
 
 const store = {
@@ -752,27 +751,8 @@ function importCustom(file) {
 /* ---------- 初始化 ---------- */
 function init() {
   applySidebarMode();
-  /* 自动导入：js/auto-import.js 预置的生日记录。
-     已处理过的条目记入清单，绝不重复导入——用户修改或删除过的不会被旧数据覆盖。
-     默认身份（未登录账号）只显示内置推荐，不执行导入 */
-  if (window.NAV_BUILTIN_ONLY !== true && window.__AUTO_IMPORT?.length) {
-    const akey = (r) => `${r.name}|${r.cal}|${r.m}|${r.d}|${r.leap ? "L" : ""}`;
-    const doneArr = store.get(LS.autoDone, null);
-    if (doneArr === null) {
-      /* 首次启用新逻辑：页面已有数据说明此前已导入过，只登记清单不再重复添加 */
-      store.set(LS.autoDone, window.__AUTO_IMPORT.map(akey));
-    } else {
-      const done = new Set(doneArr);
-      const fresh = window.__AUTO_IMPORT.filter((r) => !done.has(akey(r)));
-      if (fresh.length) {
-        const { added } = Records.addMany(fresh);
-        store.set(LS.autoDone, [...doneArr, ...fresh.map(akey)]);
-        if (added > 0) {
-          setTimeout(() => alert(`已自动导入 ${added} 条生日记录，可在万年历的「生日与记录」中查看`), 600);
-        }
-      }
-    }
-  }
+  /* （生日自动导入机制已随 v73 隐私清理移除预置数据文件，死分支已删；
+     需要"每年重复"的生日用 📅 生日与记录 手动添加/批量导入） */
   // 主题：优先取上次保存的，其次跟随系统
   const savedTheme = store.get(LS.theme, null);
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;

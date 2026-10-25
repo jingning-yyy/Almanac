@@ -22,7 +22,7 @@
   const KEYS = [
     "nav_timers", "nav_timer_style", "nav_timer_cat", "nav_timer_compact", "nav_timer_order",
     "nav_timer_size", "nav_timer_cat_order", "nav_remind", "nav_remind_done",
-    "nav_records", "nav_auto_done", "nav_mood", "nav_diary", "nav_holiday_off",
+    "nav_records", "nav_mood", "nav_diary", "nav_holiday_off",
     "nav_custom_sites", "nav_hidden_sites", "nav_site_moves", "nav_cat_renames",
     "nav_removed_cats", "nav_cat_order", "nav_site_order"
   ];
@@ -85,11 +85,6 @@
     stash();
     if (name && !folderKeys(name).length) {
       writeFolder(name, readFolder("default"));   // 新建/重建：内容与默认一致
-      /* 新账号与默认保持一致：不触发生日管家自动导入 */
-      if (window.__AUTO_IMPORT?.length) {
-        const akey = (r) => `${r.name}|${r.cal}|${r.m}|${r.d}|${r.leap ? "L" : ""}`;
-        localStorage.setItem(folderPrefix(name) + "nav_auto_done", JSON.stringify(window.__AUTO_IMPORT.map(akey)));
-      }
       localStorage.setItem(folderPrefix(name) + "nav_builtin_only", "1");
     }
     restore(name);

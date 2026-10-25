@@ -39,15 +39,8 @@
     const mask = document.getElementById("tomatoMask");
     const frame = document.getElementById("tomatoFrame");
 
-    /* 顶栏 🍅：打开番茄钟 */
+    /* 顶栏 🍅：打开番茄钟（万年历的森林入口由 calendar.js 直接调 __OPEN_TOMATO） */
     document.getElementById("tomatoBtn").onclick = () => openTomato("");
-
-    /* 万年历里的种树入口（v67 起按钮已移除，保留兼容） */
-    const forestEntry = document.getElementById("calForestBtn");
-    if (forestEntry) forestEntry.onclick = () => {
-      document.getElementById("calMask").hidden = true;
-      openTomato("forest");
-    };
 
     document.getElementById("tomatoClose").onclick = closeTomato;
     mask.addEventListener("click", (e) => {

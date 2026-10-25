@@ -254,7 +254,7 @@ input, select { font-family: inherit; }
 }
 
 /* ---------- 万年历 ---------- */
-.cal-modal { max-width: 430px; }
+.cal-modal { max-width: 384px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .cal-title { text-align: center; }
 .cal-title b { font-size: 17px; display: block; }
@@ -350,11 +350,6 @@ input, select { font-family: inherit; }
 }
 /* 日历格子上的记录圆点 */
 .cal-cell { position: relative; }
-.cal-cell .rec-dot {
-  position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
-  width: 5px; height: 5px; border-radius: 50%;
-}
-.cal-cell.selected .rec-dot { background: #fff !important; }
 .cal-rec-line { color: var(--text); }
 .cal-timer-line { color: #8b5cf6; }
 /* 格内多色标记（生日按类型色，纪念日紫罗兰） */
@@ -444,7 +439,7 @@ input, select { font-family: inherit; }
 
 /* ---------- 纪念日 · 正计时 ---------- */
 .timer-modal {
-  width: 540px; min-width: 500px; min-height: 300px;
+  width: 540px; min-height: 300px;
   max-width: 96vw; max-height: 94vh; overflow: auto;
   resize: both;                  /* 右下角拖拽调整大小 */
   display: flex; flex-direction: column;
@@ -599,8 +594,6 @@ input, select { font-family: inherit; }
 .side-item.active.drag-above { box-shadow: inset 0 2.5px 0 #fff; }
 .side-item.active.drag-below { box-shadow: inset 0 -2.5px 0 #fff; }
 .card.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2.5px rgba(59, 108, 255, .4); }
-@media (max-width: 900px) {
-}
 
 /* ---------- 侧栏内部滚动（修复超高滑不到底） ---------- */
 .sidebar {
@@ -614,11 +607,6 @@ input, select { font-family: inherit; }
 /* ---------- 滚动联动高亮 ---------- */
 .side-item.spy { background: var(--chip); color: var(--text); }
 .side-item.active.spy { color: #fff; }
-
-
-/* 移动端保持原有横向布局，不启用网格缩略图 */
-@media (max-width: 900px) {
-}
 
 /* ---------- 侧栏首行：模式按钮与全部并列 ---------- */
 .side-head { display: flex; gap: 6px; margin-bottom: 4px; align-items: stretch; }
@@ -681,15 +669,7 @@ input, select { font-family: inherit; }
 /* 页首 Logo 内联 SVG */
 .logo-dot svg { display: block; }
 
-/* ---------- 页面至少撑满整个浏览器窗口高度 ---------- */
-body {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-.layout { flex: 1; }
-
-/* ---------- 修正：撤销 body flex，改用最小高度撑满窗口 ---------- */
+/* ---------- 页面至少撑满整个浏览器窗口高度（最小高度方案） ---------- */
 body { display: block; min-height: 100vh; }
 .layout { flex: none; min-height: calc(100vh - 250px); }
 
@@ -797,8 +777,7 @@ body.zen .hero h1 { font-size: 30px; }
 .tomato-modal {
   width: min(1060px, 95vw); height: min(860px, 90vh);
   max-width: 96vw; max-height: 94vh;
-  min-width: 320px; min-height: 300px;
-  padding: 0; overflow: hidden;
+  padding: 0;
   display: flex; flex-direction: column;
   resize: both;                  /* 右下角可拖拽调整大小 */
 }
@@ -887,21 +866,14 @@ body.zen .hero h1 { font-size: 30px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pack-empty { padding: 26px 0; text-align: center; color: var(--muted); font-size: 13px; }
-/* 当天森林行（万年历详情）：树用象限图标，悬停看树种与任务名 */
-.cal-forest-line {
-  display: inline-block; max-width: 100%; cursor: pointer;
-  color: #3d8f5f; font-size: 12px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  vertical-align: bottom;
-}
-.cal-forest-line:hover { text-decoration: underline; }
-.cal-forest-i { font-style: normal; font-size: 13px; margin-right: 2px; }
+/* （v62 的“当天森林行”样式与 v67 的 .cal-forest-i 基础规则已被 v66/v67 方案取代，清理批次删除） */
 
 /* ======== 弹窗统一可拖拽调大小 + 内容自适应（v64） ======== */
-/* 所有 .modal 弹窗右下角出现拖拽柄：缩小后内容可滚动，放大后内容铺开 */
+/* 所有 .modal 弹窗右下角出现拖拽柄：缩小后内容可滚动，放大后内容铺开；
+   初始大小按内容，仅设宽松下限（v67 起，240×140） */
 .modal {
   resize: both; overflow: auto;
-  min-width: 280px;
+  min-width: 240px; min-height: 140px;
   max-width: 96vw; max-height: 92vh;
 }
 /* 日记弹窗：放大时输入框跟着变高（替代输入框自己的拖拽柄） */
@@ -914,7 +886,8 @@ body.zen .hero h1 { font-size: 30px; }
 @media (max-width: 900px) {
   .modal { resize: none; }
 }
-/* 保护已调好的两个弹窗：番茄钟内滚 iframe 不出外层滚动条；纪念日列表内部滚 */
+/* 保护已调好的两个弹窗（须在 .modal 通用规则之后）：番茄钟内滚 iframe
+   不出外层滚动条；纪念日保持较宽下限 */
 .tomato-modal { overflow: hidden; min-width: 320px; min-height: 300px; }
 .timer-modal { min-width: 500px; }
 
@@ -942,41 +915,16 @@ body.zen .hero h1 { font-size: 30px; }
   transition: width .4s ease;
 }
 .cal-forest-box b { font-size: 11px; color: #3d8f5f; margin-left: 4px; white-space: nowrap; }
-/* 当天内容导出面板 */
-.daypack-modal { width: min(430px, 92vw); }
-.daypack-date { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
-.daypack-list { border: 1.5px solid var(--border); border-radius: 10px; overflow: hidden; }
-.daypack-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; cursor: pointer;
-  border-bottom: 1px dashed var(--border);
-}
-.daypack-row:last-child { border-bottom: 0; }
-.daypack-row:hover { background: var(--chip); }
-.daypack-row.empty { opacity: .45; cursor: default; }
-.daypack-name { font-size: 13px; flex: none; }
-.daypack-desc {
-  flex: 1; min-width: 0; font-size: 12px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
-}
-.daypack-modal .pack-bar { margin-top: 10px; justify-content: flex-end; }
 /* 顶栏按钮拖拽排序 */
 #headerActions button { cursor: grab; }
 #headerActions button.dragging { opacity: .4; cursor: grabbing; }
 
-/* ======== v67：➕ 白底按钮 · 弹窗初始大小内容自适应 ======== */
+/* ======== v67：➕ 白底按钮 ======== */
 /* 添加网址：白色底纹，与彩色图标区分 */
 #addBtn.add-site-btn {
   background: var(--card); border: 1.5px solid var(--border); color: var(--accent);
 }
-#addBtn.add-site-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
-/* 弹窗：初始大小按内容，仅设宽松下限；拖拽能力不变 */
-.modal { min-width: 240px; min-height: 140px; }
-
-/* ======== v67 微调 ======== */
-/* 顶栏添加图标：白色底纹 */
-#headerActions #addBtn { background: var(--card); border-color: var(--border); color: var(--accent); }
-#headerActions #addBtn:hover { border-color: var(--accent); filter: brightness(.97); }
+#addBtn.add-site-btn:hover { border-color: var(--accent); transform: translateY(-1px); filter: brightness(.97); }
 /* 当天森林图标：与心情按钮同尺寸的小圆片，并列排布 */
 .cal-forest-box { gap: 4px; }
 .cal-forest-box .cal-forest-i {
@@ -1015,19 +963,10 @@ body.zen .hero h1 { font-size: 30px; }
 .wp-cs input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .wp-cs input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
 .wp-cs.custom input[type="color"] { border-color: var(--accent); }
-/* 自定义三色极光：颜色由 --wp-c1/2/3 注入，动画与预设共用 wpAurora */
-.wallpaper-layer.wp-grad-custom {
-  background:
-    radial-gradient(ellipse at 15% 20%, color-mix(in srgb, var(--wp-c1) 60%, transparent), transparent 55%),
-    radial-gradient(ellipse at 85% 15%, color-mix(in srgb, var(--wp-c2) 55%, transparent), transparent 55%),
-    radial-gradient(ellipse at 70% 85%, color-mix(in srgb, var(--wp-c3) 50%, transparent), transparent 55%),
-    linear-gradient(135deg, color-mix(in srgb, var(--wp-c1) 22%, #060913), color-mix(in srgb, var(--wp-c2) 18%, #060913));
-  background-size: 220% 220%, 220% 220%, 220% 220%, 100% 100%;
-  animation: wpAurora 26s ease-in-out infinite alternate;
-}
 
 /* ======== v68：更多渐变预设 + 布局修正 ======== */
-/* 预设 4~8：配色注入 --wp-c1/2/3，与自定义共用同一套极光渲染 */
+/* 预设 4~8：配色注入 --wp-c1/2/3，与自定义三色极光（wp-grad-custom，
+   颜色由 --wp-c1/2/3 注入）共用下面同一套极光渲染与 wpAurora 动画 */
 .wp-grad-4 { --wp-c1: #ff7e5f; --wp-c2: #ffb347; --wp-c3: #ff5e62; }
 .wp-grad-5 { --wp-c1: #ff9a9e; --wp-c2: #fbc2eb; --wp-c3: #ffdde1; }
 .wp-grad-6 { --wp-c1: #11998e; --wp-c2: #38ef7d; --wp-c3: #a8e063; }
@@ -1059,7 +998,7 @@ body.zen .hero h1 { font-size: 30px; }
 
 /* ======== v69 ======== */
 /* 万年历弹窗更紧凑 */
-.cal-modal { max-width: 384px; padding: 14px 12px; }
+.cal-modal { padding: 14px 12px; }
 .cal-cell { padding: 4px 1px; }
 .cal-detail { margin-top: 8px; font-size: 12.5px; }
 /* 新增预设 9~12 */
