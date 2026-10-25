@@ -84,22 +84,20 @@
 
 推荐部署到 **GitHub Pages**（免费），之后所有人（电脑/手机浏览器）都开同一个网址，不存在"拷文件夹、清缓存"的问题：
 
-1. 注册 [github.com](https://github.com) → 右上角 ＋ → New repository → 名字随意（如 `nav`），选 **Public** → Create
-2. 仓库页点 **Add file → Upload files**，**只上传以下 6 项**（⚠️ 不要拖整个项目目录——GitHub 网页上传不读 `.gitignore`，`data/` 里的账号密码与亲友生日会被一并公开）：
-   - `index.html`
-   - `version.json`
-   - `css/` 文件夹
-   - `js/` 文件夹
-   - `tomato/` 文件夹
-   - `README.md`（可选）
+1. 注册 [github.com](https://github.com) → 右上角 ＋ → New repository → 名字随意（如 `almanac`），选 **Public** → Create（**不要**勾选 Add README / .gitignore，保持空仓库）
+2. 在本项目目录执行（仓库已 `git init` 并完成首次提交；`.gitignore` 已排除隐私与本机文件，`git ls-files` 可随时核对）：
+   ```
+   git remote add origin https://github.com/<你的用户名>/almanac.git
+   git push -u origin main
+   ```
 3. 仓库 **Settings → Pages** → Branch 选 `main` + `/ (root)` → Save
-4. 等一两分钟，得到网址 `https://你的用户名.github.io/nav/` ——手机、电脑浏览器都开它即可
+4. 等一两分钟，得到网址 `https://你的用户名.github.io/almanac/` ——手机、电脑浏览器都开它即可
 
-**以后更新**：本地改代码 → 版本三处 +1（`index.html` 的 `?v=N`、`js/version-check.js` 的 `APP_VER`、`version.json` 的 `{"v":N}`）→ 重新 Upload 同名文件覆盖 → 别人刷新即最新；**开着旧版的人会自动弹"发现新版本"提示条**，点"立即刷新"即可（`js/version-check.js` 实现，本地 file:// 打开时自动跳过检测）。
+**以后更新**：本地改代码 → 版本三处 +1（`index.html` 的 `?v=N`、`js/version-check.js` 的 `APP_VER`、`version.json` 的 `{"v":N}`）→ `git add -A && git commit -m "vN" && git push` → 别人刷新即最新；**开着旧版的人会自动弹"发现新版本"提示条**，点"立即刷新"即可（`js/version-check.js` 实现，本地 file:// 打开时自动跳过检测）。
 
 **数据各自独立**：纪念日/心情/图片存在每个人自己设备的浏览器里，互不相通也不同步到服务器；两人之间同步纪念日用「导出」→ 传文件 → 「导入」。
 
-**不要上传的文件**（含隐私或仅本机使用）：`data/`（账号明文密码、亲友生日、纪念日）、`.idea/`（含本机路径）、`__pycache__/`、`startup_log.txt`、`server.py`、`启动星历.bat`、`关闭星历.bat`。`.gitignore` 只对 git 命令行生效，**网页拖拽上传会无视它**，所以必须按上面白名单逐项上传。
+**隐私与本机文件已由 `.gitignore` 排除**：`data/`（账号明文密码、亲友生日、纪念日）、`.idea/`（含本机路径）、`__pycache__/`、`startup_log.txt`、`srv_out.txt` 不会进入任何提交，`git ls-files` 可随时核对。⚠️ 若改用网页拖拽上传，`.gitignore` 对其**无效**，必须按文件白名单逐项上传。`server.py` 与两个 `.bat` 无隐私内容、会随仓库发布，仅本机有用，介意可从提交中移除。仓库作者身份已设为中性名（仓库级 `git config`，未动全局），避免提交记录暴露个人邮箱。
 
 ### 磁盘数据文件夹（data/）
 
@@ -116,7 +114,7 @@ data/
 - 资源管理器里直接可见、可整体拷贝迁移（把 data/ 文件夹拷给别人即可带走数据）
 - 页面运行期间每 5 秒自动同步 + 关闭页面时立即保存
 - 双击 index.html（file://）打开时无磁盘同步，数据仍在浏览器（用账号面板的导出/导入迁移）
-- 部署到 GitHub Pages 时**不要上传 data/**：`.gitignore` 只对 git 命令行生效，网页拖拽上传会无视它（见上方部署白名单），生日记录同理不会公开。
+- 部署到 GitHub Pages 用 git 推送时 `.gitignore` 已排除 `data/`，生日记录不会公开；网页拖拽上传则不受 `.gitignore` 保护，勿用。
 
 ---
 
