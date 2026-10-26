@@ -216,6 +216,10 @@ input, select { font-family: inherit; }
 }
 .acc-ops button:hover { color: var(--accent); border-color: var(--accent); }
 .acc-ops .acc-rm:hover { color: var(--danger); border-color: var(--danger); }
+.acc-ops .acc-path {
+  font-size: 10.5px; color: var(--muted);
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .acc-folder-stat { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
 .acc-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 3px 0; }
 .acc-item .acc-del, .acc-item .acc-rm {

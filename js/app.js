@@ -103,30 +103,11 @@ function greeting() {
   return "晚上好";
 }
 
-/* ---------- 数据合并：iTab/书签导入 + 内置 + 自定义 ---------- */
+/* ---------- 网址目录：内置分类基线 + 自定义 ---------- */
 function allCategories() {
-  /* 默认身份（未登录账号）只显示内置推荐，不加载 iTab/书签导入数据 */
-  const builtinOnly = window.NAV_BUILTIN_ONLY === true;
-  const imported = builtinOnly ? [] : [
-    ...(typeof NAV_ITAB_DATA !== "undefined" ? NAV_ITAB_DATA : []),
-    ...(typeof NAV_BOOKMARKS_DATA !== "undefined" ? NAV_BOOKMARKS_DATA : [])
-  ];
-  const mergeMap = builtinOnly ? {} : Object.assign(
-    {},
-    typeof NAV_ITAB_MERGE !== "undefined" ? NAV_ITAB_MERGE : {},
-    typeof NAV_BOOKMARKS_MERGE !== "undefined" ? NAV_BOOKMARKS_MERGE : {}
-  );
+  /* 目录统一：默认身份与账号都用内置分类做基线，
+     个人网址存在各账号自己的 nav_custom_sites 里（按账号显示） */
   const cats = NAV_DATA.map((c) => ({ name: c.name, icon: c.icon || "🔗", sites: [...c.sites] }));
-  for (const c of imported) {
-    /* 与已有分类同名则自动并入；映射表可指定并入到其他分类（含尚不存在的新分类名） */
-    const target = mergeMap[c.name] || c.name;
-    const host = cats.find((x) => x.name === target);
-    if (host) {
-      host.sites.push(...c.sites);   /* 并入主题相同的内置分类 */
-    } else {
-      cats.push({ name: target, icon: c.icon || "🔗", sites: [...c.sites] });
-    }
-  }
   /* 1) 分类重命名：先于移动归位应用，保持原位置与图标（新名与已有分类相同视为并入） */
   const renames = store.get(LS.catRenames, {});
   for (const cat of [...cats]) {
@@ -144,14 +125,15 @@ function allCategories() {
   for (let i = cats.length - 1; i >= 0; i--) {
     if (cats[i].name.endsWith("\u0000")) cats.splice(i, 1);
   }
-  /* 2) 自定义网址 */
+  /* 2) 自定义网址（catIcon：导入数据带来的分组图标，仅建新分类时生效） */
   for (const s of store.get(LS.custom, [])) {
     let cat = cats.find((c) => c.name === s.category);
     if (!cat) {
-      cat = { name: s.category, icon: "📌", sites: [] };
+      cat = { name: s.category, icon: s.catIcon || "📌", sites: [] };
       cats.push(cat);
     }
-    cat.sites.push({ ...s, custom: true });
+    const { catIcon, ...site } = s;
+    cat.sites.push({ ...site, custom: true });
   }
   /* 3) 应用删除过滤与拖动换分类 */
   const hidden = new Set(store.get(LS.hidden, []));

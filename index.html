@@ -266,7 +266,8 @@
       <p class="account-tip" id="accList"></p>
       <div id="accManage" class="account-manage"></div>
       <label>用户名
-        <input id="accUser" maxlength="20" placeholder="已有账号，或输入新用户名创建">
+        <input id="accUser" maxlength="20" list="accUserList" placeholder="下拉选已有账号，或输入新用户名创建">
+        <datalist id="accUserList"></datalist>
       </label>
       <label>密码
         <input id="accPass" type="password" placeholder="新账号请设置密码；已有账号输入原密码">
@@ -345,8 +346,6 @@
 
   <script src="js/account.js?v=1.0"></script>
   <script src="js/data-sync.js?v=1.0"></script>
-  <script src="js/data-itab.js?v=1.0"></script>
-  <script src="js/data-bookmarks.js?v=1.0"></script>
   <script src="js/data.js?v=1.0"></script>
   <script src="js/app.js?v=1.0"></script>
   <script src="js/solarlunar.js?v=1.0"></script>

@@ -1,28 +1,56 @@
 /* ============================================================
- * 磁盘数据同步（可选增强）：配合 server.py 使用
- * 用 server.py 打开页面时，各账号数据自动镜像为磁盘上的真实文件：
- *   data/用户名.json   ← 每个账号一个整包（默认身份 = default.json）
- *   data/accounts.json / current.json / deleted.json ← 账号表 / 当前身份 / 已删账号墓碑
- * 资源管理器里可直接查看/拷贝整个 data 文件夹给别人：
- *   对方浏览器没用过 → 首开整包拉取；已用过 → 自动并入"对方没有的账号"，
- *   已有的账号以各自本地为准，互不覆盖、也不会被镜像删除误删。
- * 双击 index.html（file://）或部署线上时自动停用，数据仍保存在浏览器。
- * 注意：本文件应在 account.js 之后、app.js 之前加载
+ * 磁盘数据同步（v2.1）：磁盘是账号数据的唯一权威
+ *   默认身份（未登录）：数据只存浏览器，本文件不做任何磁盘读写
+ *   登录账号：localStorage 是运行缓存；页面加载时从磁盘对齐一次，
+ *            之后每次修改防抖写回 data/<用户名>.json（带 savedAt 时间戳，
+ *            磁盘与缓存冲突时时间戳新的赢，任何一方都不会静默覆盖对方）
+ *   file:// 双击打开：离线模式，只跑浏览器缓存（account.js 会提示）
+ *   v2.1 修复：
+ *   - /api 请求带超时（4s）与重试（3 次）：服务器假死不再让页面
+ *     永远停在"默认身份、无数据"的半初始化状态
+ *   - 连接失败不再是静默的：账号按钮显示 ⚠，账号弹窗给出原因和重试
+ *   - 身份切换写入 sync_epoch 代际号：其他标签页发现代际变了立即
+ *     重新对齐磁盘，而不是把切换中途的数据推上磁盘覆盖账号
+ *     （多标签互相覆盖、"登录后数据消失"的根源）
+ *   - 数据比较改用键序无关的稳定序列化：同内容不再被误判为不同，
+ *     消除因此产生的无意义写盘和连锁刷新
+ * 接口（server.py v2）：
+ *   GET  /api/state  → {dataDir, accounts, current, user:{savedAt,data}|null}
+ *   POST /api/user   → {name, bundle:{savedAt, data}}        保存账号数据包
+ *   POST /api/auth   → {accounts, current, remove?}          账号表/身份/删号
+ *   POST /api/config → {dataDir}                             修改数据目录
+ * 注意：本文件在 account.js 之后、app.js 之前加载
  * ============================================================ */
 "use strict";
 
 (() => {
-  if (!/^https?:/.test(location.protocol)) return;   // file:// 不启用
   const DIR = "data/";
+  const SAVED = "__savedAt";
+  const EPOCH = DIR + "sync_epoch";   // 身份代际：任何标签页切换身份都会更新
   const KEYS = window.NAV_ACCOUNT_KEYS || [];
   if (!KEYS.length) return;
-  /* 调试钩子（控制台可查 window.__SYNC） */
-  window.__SYNC = { enabled: false, lastFp: "", errs: [], pushes: 0, push: null };
+  const HTTP = /^https?:/.test(location.protocol);
 
-  let enabled = false;
-  let lastFp = "";
+  /* account.js 通过这些方法联动磁盘；离线时全部为安全空操作 */
+  let readyResolve = null;
+  const readyPromise = new Promise((r) => { readyResolve = r; });
+  window.NAV_DISK = {
+    /* status: connecting 连接中 / on 已连接 / error 连接失败 / offline 离线模式 */
+    enabled: false, offline: !HTTP, status: HTTP ? "connecting" : "offline",
+    dataDir: "", errs: [],
+    pushUser: async () => {}, auth: async () => ({}), getState: async () => ({}),
+    setDir: async () => ({}), markSuppress: () => {}, bumpEpoch: () => {},
+    /* 登录/切换前等启动完成（最多 ms 毫秒），防止在服务器状态未知时动手脚 */
+    waitReady: (ms) => Promise.race([readyPromise, new Promise((r) => setTimeout(r, ms))])
+  };
+  if (!HTTP) { readyResolve(); return; }   // file://：离线模式
 
-  const stdSnapshot = () => {
+  const readCurrent = () => {
+    let cur = localStorage.getItem(DIR + "current") || "";
+    if (/^".*"$/s.test(cur)) { try { cur = JSON.parse(cur); } catch { /* 保留原值 */ } }
+    return typeof cur === "string" ? cur : "";
+  };
+  const snapshot = () => {
     const b = {};
     for (const k of KEYS) {
       const v = localStorage.getItem(k);
@@ -30,187 +58,214 @@
     }
     return b;
   };
-  const folderRead = (u) => {
-    const p = DIR + (u || "default") + "/", b = {};
+  /* 键序无关的稳定序列化：同内容不同键序不被误判为"变了" */
+  const stable = (o) => {
+    if (o === null || typeof o !== "object") return JSON.stringify(o) ?? "null";
+    if (Array.isArray(o)) return "[" + o.map(stable).join(",") + "]";
+    return "{" + Object.keys(o).sort().map((k) => JSON.stringify(k) + ":" + stable(o[k])).join(",") + "}";
+  };
+  const getSaved = (name) => Number(localStorage.getItem(DIR + name + "/" + SAVED) || 0);
+  const setSaved = (name, t) => {
+    try { localStorage.setItem(DIR + name + "/" + SAVED, String(t)); } catch { /* 忽略 */ }
+  };
+  const getEpoch = () => { try { return localStorage.getItem(EPOCH) || "0"; } catch { return "0"; } };
+  const setEpoch = () => {
+    try { localStorage.setItem(EPOCH, Date.now() + Math.random().toString(36).slice(2, 6)); } catch { /* 忽略 */ }
+  };
+
+  /* 数据包 → localStorage：先清空该账号文件夹缓存与标准键，再整体写入 */
+  function applyBundle(name, data) {
+    for (const k of KEYS) {
+      localStorage.removeItem(DIR + name + "/" + k);
+      localStorage.removeItem(k);
+    }
+    for (const [k, v] of Object.entries(data || {})) {
+      const sv = typeof v === "string" ? v : JSON.stringify(v);
+      localStorage.setItem(DIR + name + "/" + k, sv);
+      if (KEYS.includes(k)) localStorage.setItem(k, sv);
+    }
+  }
+
+  /* 回到默认身份：清空标准键，恢复本浏览器给默认身份留的数据 */
+  function restoreDefault() {
+    for (const k of KEYS) localStorage.removeItem(k);
+    const p = DIR + "default/", keys = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(p)) b[k.slice(p.length)] = localStorage.getItem(k);
+      if (k && k.startsWith(p)) keys.push(k);
     }
-    return b;
-  };
-  const getJSON = (k, fallback) => {
-    try {
-      const v = localStorage.getItem(k);
-      return v === null ? fallback : JSON.parse(v);
-    } catch { return fallback; }
-  };
-
-  /* current 兼容两种写法：裸字符串（account.js）与带引号 JSON（旧版拉取） */
-  function readCurrent() {
-    let cur = localStorage.getItem(DIR + "current") || "";
-    if (/^".*"$/.test(cur)) { try { cur = JSON.parse(cur); } catch { /* 保留原值 */ } }
-    return typeof cur === "string" ? cur : String(cur ?? "");
-  }
-
-  /* 浏览器存储 → 磁盘树：每个用户一个整包 { 用户名: 全部数据 } */
-  function treeFromBrowser() {
-    const acc = getJSON(DIR + "accounts", {});
-    const cur = readCurrent();
-    const tombL = new Set(getJSON(DIR + "deleted", []));
-    const tree = { "accounts": acc, "current": cur, "deleted": getJSON(DIR + "deleted", []) };
-    const users = new Set(["default", ...Object.keys(acc)]);
-    if (cur) users.add(cur);
-    for (const u of users) {
-      if (tombL.has(u)) continue;         // 已删账号：不随树推送，防旧档复活
-      /* 未登录（cur 为空）时，标准键的实时数据归属 default 身份，
-         否则 default 整包只停留在账号切换时的旧存档（镜像失真） */
-      const isLive = u === cur || (u === "default" && !cur);
-      const b = Object.assign(folderRead(u), isLive ? stdSnapshot() : {});
-      tree[u || "default"] = b;
-    }
-    return tree;
-  }
-
-  /* 磁盘树 → 浏览器存储（全新浏览器首次打开时拉取） */
-  function applyTree(tree) {
-    const cur = String(tree["current"] ?? "");
-    const tomb = new Set(Array.isArray(tree["deleted"]) ? tree["deleted"] : []);
-    for (const [name, bundle] of Object.entries(tree)) {
-      if (name === "accounts" || name === "current" || name === "deleted") continue;
-      if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) continue;
-      if (tomb.has(name)) continue;               // 已删账号墓碑：不拉回
-      for (const [k, v] of Object.entries(bundle)) {
-        /* 磁盘上的值本来就是字符串，必须原样写入；JSON.stringify 会造成双重编码 */
-        const sv = typeof v === "string" ? v : JSON.stringify(v);
-        localStorage.setItem(DIR + name + "/" + k, sv);
-        if (KEYS.includes(k) && (name === cur || (name === "default" && !cur))) {
-          localStorage.setItem(k, sv);   // 当前身份/默认：同步到标准键
-        }
+    for (const k of keys) {
+      const sk = k.slice(p.length);
+      if (KEYS.includes(sk)) {
+        const v = localStorage.getItem(k);
+        if (v !== null) localStorage.setItem(sk, v);
       }
     }
-    localStorage.setItem(DIR + "accounts", JSON.stringify(tree["accounts"] ?? {}));
-    localStorage.setItem(DIR + "current", String(tree["current"] ?? ""));
-    localStorage.setItem(DIR + "deleted", JSON.stringify(Array.isArray(tree["deleted"]) ? tree["deleted"] : []));
   }
 
-  /* 磁盘 → 本地：把"本地没有"的账号数据并入浏览器（拷贝 data/ 迁移、双机共用场景）。
-   * 这是 v73 空浏览器防线的补全：此前旧浏览器首推会把拷入的陌生账号文件
-   * 当"磁盘多余文件"镜像删除——即"拷 data/ 给别人"在对方用过星历时反被销毁。
-   * 规则：已存在的账号以本地为准（防旧磁盘覆盖本地新数据）；
-   *      删除过的账号有墓碑（data/deleted），不复活；默认基线以本地为准。 */
-  function importForeign(tree) {
-    let changed = false;
-    const tomb = new Set([
-      ...getJSON(DIR + "deleted", []),
-      ...(Array.isArray(tree["deleted"]) ? tree["deleted"] : [])
-    ]);
-    const accLocal = getJSON(DIR + "accounts", {});
-    const accDisk = tree["accounts"] && typeof tree["accounts"] === "object" ? tree["accounts"] : {};
-    const cur = readCurrent();
-    for (const [name, bundle] of Object.entries(tree)) {
-      if (["accounts", "current", "deleted"].includes(name)) continue;
-      if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) continue;
-      if (name === "default") continue;
-      if (tomb.has(name)) continue;
-      if (name === cur) continue;
-      if (accLocal[name] || Object.keys(folderRead(name)).length) continue;
-      for (const [k, v] of Object.entries(bundle)) {
-        localStorage.setItem(DIR + name + "/" + k, typeof v === "string" ? v : JSON.stringify(v));
-      }
-      if (accDisk[name]) accLocal[name] = accDisk[name];
-      changed = true;
-    }
-    if (changed) {
-      localStorage.setItem(DIR + "accounts", JSON.stringify(accLocal));
-      window.__SYNC.imported = true;
-    }
-    return changed;
+  async function fetchT(url, ms) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    try { return await fetch(url, { signal: c.signal }); }
+    finally { clearTimeout(t); }
   }
 
-  async function push(force = false) {
-    if (!enabled) return;
-    let tree = null;
-    try {
-      tree = treeFromBrowser();
-    } catch (e) {
-      window.__SYNC.errs.push("tree: " + e.message);
-      return;
-    }
-    /* 空浏览器不镜像，防误清磁盘（v73）：
-     * 没有任何账号、不在任何登录身份、除 default 外无数据、且 default
-     * 也没有实际内容（default 有内容说明默认身份在正常使用，放行） */
-    const hasAccounts = tree["accounts"] && Object.keys(tree["accounts"]).length > 0;
-    const hasCurrent = String(tree["current"] ?? "") !== "";
-    const hasUserData = Object.entries(tree).some(([k, v]) =>
-      k !== "accounts" && k !== "current" && k !== "default"
-      && v && typeof v === "object" && Object.keys(v).length > 0);
-    const defActive = !hasCurrent && tree["default"]
-      && Object.keys(tree["default"]).length > 0;
-    if (!hasAccounts && !hasCurrent && !hasUserData && !defActive) {
-      window.__SYNC.errs.push("skip empty tree");
-      return;
-    }
-    const fp = JSON.stringify(tree);
-    if (!force && fp === lastFp) return;
-    try {
-      const r = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tree: tree })
-      });
-      /* 指纹只在推送成功后记录：失败（网络抖动）时下个周期自动重试，不留窗口 */
-      if (!r.ok) window.__SYNC.errs.push("http " + r.status);
-      else { lastFp = fp; window.__SYNC.pushes++; }
-    } catch (e) {
-      window.__SYNC.errs.push("net: " + e.message);
-    }
+  async function postJSON(url, obj) {
+    const r = await fetchT2(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(obj)
+    }, 8000);
+    if (!r.ok) throw new Error("http " + r.status);
+    return r.json();
   }
+  async function fetchT2(url, opts, ms) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    try { return await fetch(url, Object.assign({ signal: c.signal }, opts)); }
+    finally { clearTimeout(t); }
+  }
+
+  async function pushUser(name, bundle) {
+    if (!name) return;
+    const savedAt = Date.now();
+    await postJSON("/api/user", { name, bundle: { savedAt, data: bundle || {} } });
+    setSaved(name, savedAt);
+  }
+
+  let lastFp = null, myEpoch = "0", pushTimer = null;
+  const fp = () => stable(snapshot());
 
   async function startup() {
-    try {
-      const ping = await fetch("/api/ping");
-      if (!ping.ok) return;
-      enabled = true;
-      window.__SYNC.enabled = true;
-      document.documentElement.dataset.disksync = "1";
-      const s = await fetch("/api/sync");
-      const { tree = {} } = await s.json();
-      const diskHas = Object.keys(tree).length > 0;
-      /* 全新浏览器判定：不能用"localStorage 是否有数据键"判断——页面模块
-       * 初始化会先写入内置数据（如自动节日），与本异步检查存在竞态，
-       * 曾导致新浏览器跳过拉取、反手把空状态推上磁盘清空数据。
-       * 改用可靠标记：从未拉取过 且 本机没有账号表。 */
-      const PULLED_FLAG = "data/sync_pulled";
-      const freshBrowser =
-        localStorage.getItem(DIR + "accounts") === null &&
-        !localStorage.getItem(PULLED_FLAG);
-      if (diskHas && freshBrowser) {
-        applyTree(tree);
-        try { localStorage.setItem(PULLED_FLAG, "1"); } catch { /* 忽略 */ }
+    const D = window.NAV_DISK;
+    let s = null, why = "";
+    for (let i = 0; i < 3; i++) {
+      try {
+        const ping = await fetchT("/api/ping", 4000);
+        if (!ping.ok) { why = "ping http " + ping.status; break; }
+        s = await (await fetchT("/api/state", 4000)).json();
+        break;
+      } catch (e) {
+        why = e && e.name === "AbortError" ? "请求超时" : String(e && e.message || e);
+      }
+    }
+    if (!s) {
+      /* 连不上/假死：明确亮出失败状态，页面按浏览器缓存继续跑，
+         绝不能默默当"默认身份"用——那正是"登录了却没数据"的假象来源 */
+      D.status = "error";
+      D.errs.push("startup: " + why);
+      readyResolve();
+      return;
+    }
+    D.enabled = true;
+    D.status = "on";
+    D.dataDir = s.dataDir || "";
+    /* 真实方法立即挂载并放行等待者：状态已就绪，交互随时可能发生 */
+    D.pushUser = pushUser;
+    D.auth = async (obj) => await postJSON("/api/auth", obj);
+    D.getState = async () => await (await fetchT("/api/state", 4000)).json();
+    D.setDir = async (p) => {
+      const r = await postJSON("/api/config", { dataDir: p });
+      if (r && r.dataDir) D.dataDir = r.dataDir;
+      return r;
+    };
+    D.markSuppress = () => {
+      try { localStorage.setItem(DIR + "sync_suppress", "1"); } catch { /* 忽略 */ }
+    };
+    D.bumpEpoch = setEpoch;
+    readyResolve();
+    localStorage.setItem(DIR + "sync_suppress", "0");
+
+    const diskCur = String(s.current ?? "");
+    const localCur = readCurrent();
+    try { localStorage.setItem(DIR + "accounts", JSON.stringify(s.accounts || {})); } catch { /* 忽略 */ }
+
+    if (diskCur !== localCur) {
+      /* 身份以磁盘为准（换了浏览器/别处登录过）。先把本地当前数据安置好 */
+      if (localCur) {
+        const std = snapshot();
+        applyBundle(localCur, std);                    // 写回其文件夹缓存
+        try { await pushUser(localCur, std); }         // 磁盘兜底保存
+        catch (e) { D.errs.push("save: " + e.message); }
+      } else {
+        for (const [k, v] of Object.entries(snapshot())) {
+          localStorage.setItem(DIR + "default/" + k, v);   // 默认身份的数据留本浏览器
+        }
+      }
+      localStorage.setItem(DIR + "current", diskCur);
+      if (diskCur) {
+        const data = s.user && typeof s.user.data === "object" ? s.user.data : {};
+        applyBundle(diskCur, data);
+        setSaved(diskCur, (s.user && s.user.savedAt) || Date.now());
+      } else {
+        restoreDefault();
+      }
+      D.markSuppress();
+      location.reload();
+      return;
+    }
+
+    if (diskCur) {
+      const diskSaved = s.user ? (s.user.savedAt || 0) : -1;
+      const data = s.user && typeof s.user.data === "object" ? s.user.data : null;
+      const snap = snapshot();
+      if (data && diskSaved > getSaved(diskCur) && stable(data) !== stable(snap)) {
+        applyBundle(diskCur, data);              // 磁盘较新（他处保存过）：以磁盘为准
+        setSaved(diskCur, diskSaved);
+        D.markSuppress();
         location.reload();
         return;
       }
-      try { localStorage.setItem(PULLED_FLAG, "1"); } catch { /* 忽略 */ }
-      /* 旧浏览器 + 新磁盘数据（拷贝 data/ 迁移）：先把本地没有的账号并入，
-       * 再做首推镜像——推送树因此是双方并集，镜像删除不会再删掉拷入的文件 */
-      if (diskHas && !freshBrowser) {
-        try { importForeign(tree); }
-        catch (e) { window.__SYNC.errs.push("import: " + e.message); }
+      if (!data || stable(data) !== stable(snap)) {
+        try { await pushUser(diskCur, snap); }   // 本地较新或磁盘缺失：对齐到磁盘
+        catch (e) { D.errs.push("reconcile: " + e.message); }
       }
-      await push(true);                          // 启动时强制初始镜像（磁盘缺失自动重建）
-      setInterval(push, 5000);                   // 每 5 秒检查变化
-      window.addEventListener("beforeunload", () => {
-        try {
-          navigator.sendBeacon("/api/sync",
-            new Blob([JSON.stringify(treeFromBrowser())], { type: "application/json" }));
-        } catch { /* 忽略 */ }
-      });
-      document.addEventListener("visibilitychange", () => {
-        if (document.hidden) push();
-      });
-    } catch (e) {
-      window.__SYNC.errs.push("startup: " + e.message);
     }
+    lastFp = fp();
+    myEpoch = getEpoch();
+
+    /* 监听修改：仅登录状态。默认身份的一切改动都只留在浏览器 */
+    setInterval(() => {
+      if (!readCurrent()) return;
+      if (getEpoch() !== myEpoch) { location.reload(); return; }   // 别的标签页切换了身份：重新对齐
+      if (fp() === lastFp) return;
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(async () => {
+        const cur = readCurrent();
+        if (!cur || getEpoch() !== myEpoch) return;
+        const snap = snapshot();
+        try {
+          await pushUser(cur, snap);
+          lastFp = stable(snap);
+        } catch (e) { D.errs.push("push: " + e.message); }
+      }, 800);
+    }, 4000);
+
+    window.addEventListener("beforeunload", () => {
+      if (localStorage.getItem(DIR + "sync_suppress") === "1") return;
+      if (getEpoch() !== myEpoch) return;        // 身份切换中：不推，防止把中途状态写上磁盘
+      const cur = readCurrent();
+      if (!cur || fp() === lastFp) return;
+      try {
+        navigator.sendBeacon("/api/user", new Blob(
+          [JSON.stringify({ name: cur, bundle: { savedAt: Date.now(), data: snapshot() } })],
+          { type: "application/json" }));
+      } catch { /* 忽略 */ }
+    });
+
+    /* 后台标签页的定时器会被浏览器节流/冻结：回到前台时立即对齐一次，
+       保证切回标签页就能看到自己的修改已落盘 */
+    const syncNow = () => {
+      const cur = readCurrent();
+      if (!cur || getEpoch() !== myEpoch || fp() === lastFp) return;
+      clearTimeout(pushTimer);
+      const snap = snapshot();
+      pushUser(cur, snap)
+        .then(() => { lastFp = stable(snap); })
+        .catch((e) => D.errs.push("push: " + e.message));
+    };
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
+    window.addEventListener("focus", syncNow);
   }
 
   startup();
