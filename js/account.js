@@ -217,18 +217,14 @@
     impInput.click();
   }
 
-  /* 数据位置行：显示当前磁盘目录；连接失败/离线（file://）时给出提示 */
+  /* 数据位置行：显示当前磁盘目录；离线（file:// 或无数据服务器的在线部署）时给出提示 */
   function renderStorage() {
     const d = window.NAV_DISK;
     let ops;
     if (!d || d.status === "connecting") {
       ops = `<span class="acc-path">正在连接服务器…</span>`;
-    } else if (d.status === "error") {
-      const why = esc(d.errs[d.errs.length - 1] || "原因未知");
-      ops = `<span class="acc-path" title="${esc(d.errs.join("；"))}">⚠ 数据服务器连接失败（${why}），改动不会保存到磁盘</span>` +
-        `<button type="button" class="acc-dir" data-act="retry" title="重新连接数据服务器">重试</button>`;
     } else if (d.offline || !d.enabled) {
-      ops = `<span class="acc-path" title="当前是双击 index.html 的离线方式，数据只存本浏览器。用「启动星历.bat」打开即可同步到磁盘">浏览器缓存（离线模式，未同步磁盘）</span>`;
+      ops = `<span class="acc-path" title="此环境没有数据服务器，数据只存本浏览器。在本机用「启动星历.bat」打开即可同步到磁盘">浏览器缓存（离线模式，未同步磁盘）</span>`;
     } else {
       ops = `<span class="acc-path" title="${esc(d.dataDir)}">${esc(d.dataDir)}</span>` +
         `<button type="button" class="acc-dir" data-act="dir" title="把账号数据保存到其他文件夹（自动迁移现有数据；留空恢复默认）">修改</button>`;
@@ -259,7 +255,6 @@
       const u = b.dataset.u;
       if (b.dataset.act === "exp") b.onclick = () => exportUser(u);
       if (b.dataset.act === "imp") b.onclick = () => pickImport(u);
-      if (b.dataset.act === "retry") b.onclick = () => location.reload();
       if (b.dataset.act === "dir") b.onclick = async () => {
         const p = prompt(
           "输入新的数据文件夹完整路径（账号数据将保存到那里）。\n留空并确定 = 恢复默认（应用目录下的 data）",
@@ -357,20 +352,21 @@
     if (!btn) return;
     const sync = () => { btn.textContent = `👤 ${getUser() || "默认"}`; };
     sync();
-    /* 同步连接状态上按钮：失败亮 ⚠（startup 异步，最多轮询到它出结果） */
+    /* 同步状态上按钮：无数据服务器的在线环境标「离线」，提醒改动不会同步 */
     const updBtn = () => {
       const d = window.NAV_DISK;
-      if (d && d.status === "error") {
-        btn.textContent = "⚠ 同步失败";
-        btn.title = "数据服务器连接失败：改动不会保存到磁盘。点击查看详情";
+      btn.title = "";
+      if (d && d.status === "offline" && /^https?:/.test(location.protocol)) {
+        btn.textContent = `👤 ${getUser() || "默认"}（离线）`;
+        btn.title = "此环境没有数据服务器：数据只存本浏览器，不会同步到磁盘";
       } else {
-        btn.title = "";
+        btn.textContent = `👤 ${getUser() || "默认"}`;
       }
     };
     updBtn();
     const poll = setInterval(() => {
       const st = window.NAV_DISK && window.NAV_DISK.status;
-      if (st !== "connecting") { clearInterval(poll); sync(); updBtn(); }
+      if (st !== "connecting") { clearInterval(poll); updBtn(); }
     }, 500);
     btn.onclick = openModal;
     document.getElementById("accLogin").onclick = doLogin;
