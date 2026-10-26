@@ -1056,3 +1056,23 @@ body.zen .hero h1 { font-size: 30px; }
 }
 .pack-type:hover { border-color: var(--accent); }
 .pack-type input { accent-color: var(--accent); }
+
+/* ======== 网址小图标模式（方块网格）：外网右侧 🔲 按钮切换 ======== */
+/* 模式按钮与地区筛选同一排，图标款收窄内边距 */
+.region-filter button.mode { padding: 5px 11px; }
+/* 方块网格：图标居上、名称居下，隐藏简介与标签 */
+body.icon-mode .grid {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+}
+body.icon-mode .card {
+  flex-direction: column; justify-content: center; gap: 8px;
+  padding: 14px 8px 11px; text-align: center;
+}
+body.icon-mode .card .info { width: 100%; }
+body.icon-mode .card .name {
+  display: block; font-size: 12.5px; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.icon-mode .card .name .tag { display: none; }
+body.icon-mode .card .desc { display: none; }

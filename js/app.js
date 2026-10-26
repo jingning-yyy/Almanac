@@ -23,6 +23,7 @@ const LS = {
   order: "nav_cat_order",         // 分类显示顺序
   siteOrder: "nav_site_order",    // 网址显示顺序
   sidebarMini: "nav_sidebar_mini",// 侧栏缩略图模式
+  iconMode: "nav_icon_mode",     // 网址小图标（方块）模式
   zen: "nav_zen"                  // 专注模式（点击问候语隐藏下方内容）
 };
 
@@ -42,6 +43,7 @@ let activeCategory = "all";
 let keyword = "";
 let regionFilter = "all";   // all | cn | global
 let sidebarMini = store.get(LS.sidebarMini, false); // 侧栏缩略图模式
+let iconMode = store.get(LS.iconMode, false);       // 网址小图标（方块）模式
 let zenMode = store.get(LS.zen, false);             // 专注模式（隐藏下方内容）
 let dragCat = null;         // 正在拖动的分类名
 let dropBefore = true;      // 分类拖动插入位置：目标之前/之后
@@ -51,6 +53,12 @@ if (!ENGINES[currentEngine]) currentEngine = "baidu";
 function applySidebarMode() {
   document.querySelector(".layout")?.classList.toggle("mini", sidebarMini);
 }
+
+/* 小图标模式：网址卡片变成图标+名称的小方块网格（外网右侧 🔲 按钮切换） */
+function applyIconMode() {
+  document.body.classList.toggle("icon-mode", iconMode);
+}
+applyIconMode();
 
 /* 专注模式：点击问候语隐藏/恢复搜索区与网址列表。
    脚本在 body 末尾执行，立刻上类避免刷新时内容闪现 */
@@ -497,7 +505,9 @@ function buildCard(site) {
   a.target = "_blank";
   a.rel = "noopener noreferrer";
   a.draggable = true;
-  a.title = "拖动到左侧分类可更改归属 · 拖到其他卡片上可调整排序";
+  a.title = iconMode
+    ? `${site.name}\n${site.desc || site.url}`
+    : "拖动到左侧分类可更改归属 · 拖到其他卡片上可调整排序";
   a.addEventListener("dragstart", (e) => {
     e.dataTransfer.setData("text/plain", site.url);
     e.dataTransfer.effectAllowed = "move";
@@ -798,15 +808,30 @@ function init() {
     if (e.key === "Escape" && !$("#modalMask").hidden) closeModal();
   });
 
-  // 地区筛选：全部 / 大陆 / 外网
-  $("#regionFilter").querySelectorAll("button").forEach((b) => {
+  // 地区筛选：全部 / 大陆 / 外网（仅带 data-r 的按钮，🔲 模式按钮不参与）
+  const rBtns = $("#regionFilter").querySelectorAll("button[data-r]");
+  rBtns.forEach((b) => {
     b.onclick = () => {
       regionFilter = b.dataset.r;
-      $("#regionFilter").querySelectorAll("button").forEach((x) =>
-        x.classList.toggle("active", x === b));
+      rBtns.forEach((x) => x.classList.toggle("active", x === b));
       renderAll();
     };
   });
+
+  // 小图标模式：外网右侧 🔲 按钮，方块网格与大卡片互切（状态记忆）
+  const iconBtn = $("#iconModeBtn");
+  const syncIconBtn = () => {
+    iconBtn.classList.toggle("active", iconMode);
+    iconBtn.title = iconMode ? "小图标模式已开启 · 点击恢复大卡片" : "切换为小图标（方块）模式";
+  };
+  iconBtn.onclick = () => {
+    iconMode = !iconMode;
+    store.set(LS.iconMode, iconMode);
+    applyIconMode();
+    syncIconBtn();
+    renderAll();
+  };
+  syncIconBtn();
 
   // 回到顶部
   const backTop = $("#backTop");
