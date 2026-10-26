@@ -126,11 +126,29 @@
     finally { clearTimeout(t); }
   }
 
+  let guardOkAt = 0;   // 最近一次推送前确认"磁盘不比本地旧"的时间（关页兜底信标用它防过期推送）
+
   async function pushUser(name, bundle) {
     if (!name) return;
+    /* 推送前冲突检查：别的设备保存过更新的数据包时磁盘赢——先对齐磁盘并
+       刷新页面，绝不能把旧会话的过期快照整包推上去覆盖新数据
+       （跨设备同时用时的丢数据根源） */
+    try {
+      const st = await window.NAV_DISK.getState();
+      const diskSaved = st && st.user ? (st.user.savedAt || 0) : 0;
+      if (st && st.user && diskSaved > getSaved(name)) {
+        applyBundle(name, st.user.data);
+        setSaved(name, diskSaved);
+        window.NAV_DISK.markSuppress();
+        location.reload();
+        return;
+      }
+      guardOkAt = Date.now();
+    } catch (e) { /* 状态取不到：继续推（服务器不在时 POST 同样会失败） */ }
     const savedAt = Date.now();
     await postJSON("/api/user", { name, bundle: { savedAt, data: bundle || {} } });
     setSaved(name, savedAt);
+    guardOkAt = Date.now();
   }
 
   let lastFp = null, myEpoch = "0", pushTimer = null;
@@ -223,6 +241,7 @@
     }
     lastFp = fp();
     myEpoch = getEpoch();
+    guardOkAt = Date.now();   // 刚对齐过磁盘：短时间内允许兜底信标
 
     /* 监听修改：仅登录状态。默认身份的一切改动都只留在浏览器 */
     setInterval(() => {
@@ -244,6 +263,9 @@
     window.addEventListener("beforeunload", () => {
       if (localStorage.getItem(DIR + "sync_suppress") === "1") return;
       if (getEpoch() !== myEpoch) return;        // 身份切换中：不推，防止把中途状态写上磁盘
+      /* 冲突检查超过 20 秒没做过就放弃兜底推送：宁可下次打开时对齐，
+         也不把可能过期的快照盖到磁盘上 */
+      if (Date.now() - guardOkAt > 20000) return;
       const cur = readCurrent();
       if (!cur || fp() === lastFp) return;
       try {
